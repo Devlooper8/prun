@@ -1,0 +1,8 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
+*.log
+
+# local, per-machine Claude Code overrides (not shared)
+.claude/settings.local.json

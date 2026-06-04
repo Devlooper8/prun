@@ -1,0 +1,131 @@
+mod scanner;
+
+use scanner::{
+    ensure_override_file, rules_status as get_rules_status, scan as run_scan,
+    scan_caches as run_scan_caches, RulesStatus, ScanEvent, ScanOptions,
+};
+use std::path::Path;
+use tauri::ipc::Channel;
+
+/// Walk the root and stream progress + each reclaimable dir to the UI as it is
+/// discovered and sized. Results arrive over `on_event` rather than as a single
+/// return value, so the window stays responsive on huge trees.
+#[tauri::command]
+async fn scan(opts: ScanOptions, on_event: Channel<ScanEvent>) -> Result<(), String> {
+    // Filesystem walking is blocking; keep the UI thread free.
+    tauri::async_runtime::spawn_blocking(move || {
+        run_scan(&opts, &move |event| {
+            // A dropped receiver (window closed mid-scan) is not an error worth
+            // aborting the walk over — just stop trying to deliver.
+            let _ = on_event.send(event);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Scan per-user shared caches (the "System caches" view). These are surfaced
+/// separately from a project scan and are never auto-selected in the UI.
+#[tauri::command]
+async fn scan_caches(on_event: Channel<ScanEvent>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        run_scan_caches(&move |event| {
+            let _ = on_event.send(event);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Remove the selected paths. When `to_trash` is true they go to the system
+/// Trash (recoverable); otherwise they are permanently deleted. Each path may
+/// be a directory, a file, or a symlink.
+#[tauri::command]
+async fn clean(paths: Vec<String>, to_trash: bool) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut removed = 0usize;
+        let mut errors = Vec::new();
+        for p in paths {
+            let path = Path::new(&p);
+            // symlink_metadata (not exists) so a dangling symlink is still removable.
+            if std::fs::symlink_metadata(path).is_err() {
+                continue;
+            }
+            let result = if to_trash {
+                trash::delete(path).map_err(|e| e.to_string())
+            } else {
+                remove_path(path).map_err(|e| e.to_string())
+            };
+            match result {
+                Ok(_) => removed += 1,
+                Err(e) => errors.push(format!("{p}: {e}")),
+            }
+        }
+        if errors.is_empty() {
+            Ok(removed)
+        } else {
+            Err(errors.join("; "))
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Report where the rules override file lives and whether it is in effect, so
+/// the Settings panel can tell the user how to customize detection.
+#[tauri::command]
+fn rules_status() -> RulesStatus {
+    get_rules_status()
+}
+
+/// Create the override rules file from the built-in defaults if it doesn't yet
+/// exist, then open it in the user's default editor. Returns the path.
+#[tauri::command]
+fn open_rules_file() -> Result<String, String> {
+    let path = ensure_override_file()?;
+    os_open(&path).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// Open a path with the OS default handler (detached; we don't wait on it).
+#[cfg(target_os = "windows")]
+fn os_open(path: &str) -> std::io::Result<()> {
+    std::process::Command::new("explorer").arg(path).spawn().map(|_| ())
+}
+#[cfg(target_os = "macos")]
+fn os_open(path: &str) -> std::io::Result<()> {
+    std::process::Command::new("open").arg(path).spawn().map(|_| ())
+}
+#[cfg(all(unix, not(target_os = "macos")))]
+fn os_open(path: &str) -> std::io::Result<()> {
+    std::process::Command::new("xdg-open").arg(path).spawn().map(|_| ())
+}
+
+/// Permanently remove a file, directory, or symlink. A directory's contents are
+/// removed recursively; a symlink is removed without following it (on Windows a
+/// directory symlink needs `remove_dir`, so fall back to it).
+fn remove_path(path: &Path) -> std::io::Result<()> {
+    let ft = std::fs::symlink_metadata(path)?.file_type();
+    if ft.is_symlink() {
+        std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path))
+    } else if ft.is_dir() {
+        std::fs::remove_dir_all(path)
+    } else {
+        std::fs::remove_file(path)
+    }
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![
+            scan,
+            scan_caches,
+            clean,
+            rules_status,
+            open_rules_file
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}

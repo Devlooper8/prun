@@ -1,0 +1,118 @@
+# Todo — Parallel scan + live progress
+
+## Goal
+Scanning felt frozen (silent until everything popped in at once) and ran
+single-threaded. Make it **fast** (parallel) and **honest** (live progress bar +
+current directory + streaming rows).
+
+## Plan / progress
+- [x] Add `rayon` dep; derive `Clone` on `Location`/`Category`; add `ScanEvent` enum (scanner.rs)
+- [x] Rewrite `scanner::scan` as a parallel two-phase streaming walk
+  - [x] Phase 1: `ignore::WalkParallel` discovery (standard_filters(false) + hidden(false) so git-ignored/dotdir artifacts are still found), `.git` skip, heartbeat events
+  - [x] Phase 1.5: sequential size-independent filtering (prunignore / git-ignore / age)
+  - [x] Phase 2: `rayon` parallel sizing, one `Located{done,total}` per dir
+- [x] Wire `tauri::ipc::Channel<ScanEvent>` into the `scan` command (lib.rs)
+- [x] Add `ScanEvent` TS union + `CATEGORY_LABELS` (types.ts); progress strip markup (index.html) + styles (styles.css)
+- [x] Make `main.ts` event-driven: `runScan` over a Channel (+ browser `simulateScan`), live bar/path, streamed rows, rAF-coalesced render, re-entry guard
+- [x] Verify: `cargo check` + `cargo build` (exit 0, no warnings), `tsc --noEmit` (exit 0), dev server boots + transforms cleanly
+
+## Review
+- **Approach:** Two phases. A multi-threaded `ignore::WalkParallel` discovery pass
+  finds artifact dirs (emitting heartbeat "scanning N dirs · <path>" ticks), then
+  a `rayon` pass sizes them in parallel, streaming one event per finished dir.
+  Everything is delivered to the UI over a Tauri `Channel<ScanEvent>`.
+- **UX:** Indeterminate sweep during discovery → determinate bar (`done/total`)
+  during sizing; rows stream in (biggest first), category totals tick up live.
+  Bar uses a running max so out-of-order parallel events never make it go backwards.
+- **io_uring:** Evaluated and rejected (user-confirmed). Windows IoRing has no
+  readdir/stat opcode; Linux io_uring lacks `getdents`. Thread-parallel (the
+  approach ripgrep/fd/dua ship) is the right cross-platform choice; `ignore` was
+  already a dependency.
+- **Correctness safeguard:** `standard_filters(false)` is mandatory — the default
+  walker would skip git-ignored `node_modules`/`target` and dotdir artifacts.
+- **Files:** `src-tauri/{Cargo.toml, src/scanner.rs, src/lib.rs}`,
+  `src/{types.ts, main.ts, styles.css}`, `index.html`.
+- **Pre-existing build issue (fixed):** `npm run build` / `tauri build` were
+  failing with "Cannot find package 'esbuild'" (rolldown-vite v8 needs esbuild
+  separately). Fixed by `npm i -D esbuild`; `npm run build` now passes (exit 0).
+
+---
+
+# Todo — Group reclaimable locations by project
+
+## Goal
+The flat list showed each artifact's immediate parent as the "project", so
+`prun/src-tauri/target` displayed as **src-tauri** — and `src-tauri` recurs across
+every Tauri repo. Group locations under the real top-level project, shown as a
+collapsible row: project name + total reclaimable size + arrow → child locations.
+
+## Plan / progress
+- [x] Grouping helpers + `state.expanded` (main.ts): key = **first path segment under the scan root** (`prun`, not `src-tauri`); `subPathOf` for child labels; `groupByProject`; `distinctCategories`; `esc()`
+- [x] Render project groups (main.ts): header = arrow + tri-state checkbox + name + category dots + count + total size; indented child rows; in-place expand/collapse + selection sync (no full re-render → scroll preserved)
+- [x] Styles (styles.css): `.group*`, `.loc--child` indent, `.loc__sub`/`.loc__leaf`, custom `:indeterminate` "mixed" checkbox dash
+- [x] Verify: `tsc --noEmit` (0), `npm run build` (0), **8/8 pure-logic assertions** incl. the exact `D:\Projects\prun\src-tauri\target → "prun"` case
+
+## Review
+- **Grouping key** = first folder under the scan root. This is what makes the
+  user's case work: marker-based grouping would have picked `src-tauri` (the dir
+  holding Cargo.toml) — exactly the wrong answer. First-segment rolls every
+  artifact anywhere beneath `…/prun/` up to **prun**.
+- **Selection:** project checkbox = select/deselect all its locations, with a
+  three-state (checked / mixed-dash / empty) box driven by child selection.
+- **Caveat:** when the scan root *is* a single project, the top-level segments are
+  that project's subfolders (e.g. `src-tauri`) — grouping is less meaningful then,
+  which is expected. The feature targets scanning a directory of many projects.
+- **Pure frontend change** — backend untouched; uses existing `path` + `root`.
+- **Files:** `src/main.ts`, `src/styles.css`.
+
+---
+
+# Todo — Drive scanning from prun-rules.toml + classic blue progress bar
+
+## Goal
+The scanner ignored the hand-authored `prun-rules.toml` and used ~13 hardcoded
+rules over a closed 5-variant `CategoryId` enum. Load the real ruleset (~65
+rules, ~26 ecosystems, junk, global caches) and honour its *root-first* model.
+Also: the progress bar streamed folder paths; show only the **scan root** with a
+**classic solid-blue bar** under it.
+
+## Plan / progress
+- [x] Copy the TOML to `src-tauri/prun-rules.toml` (for `include_str!`); add `globset`, `toml` deps
+- [x] `scanner.rs` rewrite: serde model (RuleFile/Defaults/Rule/Junk/GlobalCache), compiled `Matcher` with precompiled indexes, `OnceLock` loader (override `%APPDATA%\prun\rules.toml` → embedded)
+- [x] **Hybrid** two-phase scan: phase 1 dir/junk/reclaim **name-first + marker-validated** (claims/skips only validated artifacts — no over-pruning of coincidentally-named dirs); phase 2 rayon subtree walk resolves recursive `globs`, pruning claimed dirs + matched glob-dir contents; dedup by precedence + ancestor subsumption; existing prunignore/git/age gauntlet preserved
+- [x] `String` ecosystem categories + `ecosystem_label`; dropped `current` from `Discovering`; new `scan_caches()` (platform-aware, `~` expansion)
+- [x] `lib.rs`: registered `scan_caches`; fixed `clean` permanent-delete for files/dir-symlinks (`remove_dir_all` failed on plain files) + dangling-symlink existence check
+- [x] Frontend: `categoryColor`/`categoryLabel` (curated + HSL-hash fallback), progress strip = root line + solid-blue bar (no paths/counts), **System caches** view (button, `mode` flag, never auto-selected), `index.html`/`styles.css` markup
+- [x] Verify: `cargo test` **14/14** (ported + glob marker / nested dirs / reclaim_root / junk dir+file / recursive globs / no-descend-into-claimed / global_ignore / disabled / precedence / embedded parses / realistic multi-ecosystem tree), `cargo build` 0 warnings, `tsc --noEmit` + `npm run build` 0 errors, `tauri dev` compiles + boots clean (exit 0, no panic)
+
+## Review
+- **Root-first re-architecture.** The TOML treats a dir as a project root when it
+  holds a rule's marker; that rule's `dirs`/`globs` under it are candidates. Kept
+  dir matching **name-first + marker-validated** (like the old code) so only real
+  artifacts are skipped — the Plan agent's pure `prune_names` would have skipped a
+  coincidentally-named `build/`/`out/` containing real sub-projects. Recursive
+  globs get a dedicated phase-2 subtree walk that prunes claimed dirs and doesn't
+  descend into matched glob dirs (so files inside `__pycache__` aren't re-listed).
+- **One path = one `Location`.** No glob-grouping; bounded in practice because the
+  walk skips *into* claimed dirs. `clean`/selection model untouched.
+- **Ruleset sourcing.** Embedded via `include_str!` (ships working) with an
+  optional `%APPDATA%\prun\rules.toml` override, parsed once in a `OnceLock`.
+- **`clean` bug fixed (found by the Plan agent):** permanent delete used
+  `remove_dir_all`, which fails on a plain file — fatal once globs match files.
+- **Progress UX.** Root-only line + classic solid-blue bar (indeterminate marquee
+  while discovering, determinate fill while sizing). No streamed paths or counts.
+- **Files:** `src-tauri/{Cargo.toml, prun-rules.toml, src/scanner.rs, src/lib.rs}`,
+  `src/{types.ts, main.ts, styles.css}`, `index.html`.
+- **Known tradeoffs:** loose-file globs can yield many rows on pathological trees;
+  `dirs=["build"]` also matches `Build/` on case-insensitive Windows (cosmetic);
+  symlinks (`result`, `bazel-*`) size as ~0 B (we reclaim the link, never follow).
+
+## Follow-up — Settings panel to expose the rules override
+- [x] Backend: dropped the `OnceLock` — `load_matcher()` rebuilds per scan (parse+compile is sub-ms), so override edits apply on the **next scan** with no restart
+- [x] `scanner.rs`: `rules_status()` + `RulesStatus` (override path, in-effect vs defaults vs parse-error, active counts) and `ensure_override_file()` (seeds the file with the full embedded ruleset, comments and all)
+- [x] `lib.rs`: `rules_status` + `open_rules_file` commands (cfg-gated `os_open`: explorer/open/xdg-open), registered
+- [x] Frontend: titlebar gear → Settings modal showing the override path, live status, and an "Open / create rules file" button; `types.ts` `RulesStatus`; Esc/backdrop close
+- [x] Verify: `cargo build`/`test` 0 warnings, 14/14; `npm run build` 0 errors; `tauri dev` boots clean
+- **Why:** the override file was invisible — users had no way to discover they
+  could customize detection. The panel surfaces the path, current state, and a
+  one-click open-or-create; per-scan reload makes edits actually take effect.
