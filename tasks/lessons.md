@@ -52,6 +52,10 @@ titlebar-button style. But `wire()` bound a window-control handler to **every**
 destructive — branch explicitly (`else if (action === "close")`).
 **Pattern:** a class is for *styling*; bind *behavior* to a role/attribute the
 element actually declares, not to the shared style class.
+**Recurred:** the rules editor's section tabs reuse `.pill`, and `wire()` bound the
+filter-pill handler to *every* `.pill`. Caught it proactively this time and scoped
+the selector to `.filters .pill`. When you reuse a styled class on a new screen,
+grep every `querySelectorAll('.thatclass')` and scope it.
 
 ## Headless verification can't catch click-driven behavior
 `cargo test` + `tsc`/`vite build` + a boot check all passed, yet clicking the gear
@@ -59,3 +63,23 @@ closed the app — the bug only fired on a real click, which I couldn't perform 
 headless session. **Pattern:** when a change adds interactive UI, explicitly flag
 that the click/keyboard paths need manual testing (or a webdriver), and don't
 imply "verified" covers behavior that only a real interaction exercises.
+
+## Verify library assumptions by reading the source, not folklore
+Before the rules editor I "knew" two things that were wrong-as-stated:
+(1) toml-rs throws a "values must be emitted before tables" error on
+serialization — true for the *old* streaming serializer, but `toml` 0.8 delegates
+to `toml_edit`'s document tree, which sorts tables after root scalars, so a plain
+`#[derive(Serialize)]` round-trips fine; (2) `Matcher::compile` would surface a bad
+glob — but it does `if let Ok(g) = GlobBuilder::build()`, **silently dropping**
+invalid patterns, so it's not a validator at all (needed explicit
+`GlobBuilder::build()` checks in `validate_rules`). A subagent read the actual crate
+source and killed both guesses. **Pattern:** when a design hinges on exactly how a
+dependency behaves at an edge (serialization order, error vs silent-skip), confirm
+it against the source/tests — and add a round-trip test as the regression guard.
+
+## Don't ship dead controls
+`GlobalCache.enabled` exists in the schema but `scan_caches` ignores it (the view
+lists all and never auto-selects). A "full editor" would naturally render a toggle
+for it — a control that does nothing. Hid it instead (the value still round-trips).
+**Pattern:** before exposing a field in a GUI, check that toggling it actually does
+something; a no-op control is worse than an omitted one.

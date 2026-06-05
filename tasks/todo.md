@@ -116,3 +116,70 @@ Also: the progress bar streamed folder paths; show only the **scan root** with a
 - **Why:** the override file was invisible — users had no way to discover they
   could customize detection. The panel surfaces the path, current state, and a
   one-click open-or-create; per-scan reload makes edits actually take effect.
+
+---
+
+# Todo — In-app full Rules editor
+
+## Goal
+Let users edit the ruleset via a GUI instead of hand-editing 790 lines of TOML.
+Full editor (every field of every rule / junk / system-cache + defaults,
+add/delete), saving the complete ruleset to the override (full-copy model) with
+Reset-to-defaults.
+
+## Plan / progress
+- [x] Backend: `RuleFile`/`Defaults`/`Rule`/`Junk`/`GlobalCache` made `Serialize`+`Clone`+`pub`, added `note`/`schema_version` (were dropped), skip-empty attrs; `load_rules`/`save_rules`(validate+atomic write)/`reset_rules` (+ `*_to`/`*_from` for hermetic tests); 6 new tests (round-trip, notes, save/load, validation, reset, matcher-unaffected)
+- [x] lib.rs: registered `load_rules`/`save_rules`/`reset_rules`
+- [x] Frontend: `types.ts` DTOs + `KNOWN_ECOSYSTEMS`; new `src/rules-editor.ts` (full-screen overlay, section tabs, editable model, chip string-lists, rule/junk/cache/defaults cards, Save/Reset/Cancel + dirty guard); `index.html` overlay + Settings "Edit rules in app" button; `styles.css` `.reditor*`
+- [x] Verify: `cargo test` **20/20**, `cargo build` 0 warnings, `tsc`+`npm run build` 0 errors, `tauri dev` boots clean
+
+## Review
+- **TOML round-trip de-risked by reading the crate source** (Plan agent): `toml`
+  0.8.2 serializes via `toml_edit`'s document tree — root scalars render before
+  tables, so `to_string_pretty` round-trips with plain `#[derive(Serialize)]`; no
+  new crates. `schema_version` declared first to stay ahead of `[defaults]`.
+- **Two library-assumption traps caught:** `skip_serializing_if` also hides fields
+  from the UI JSON → a `normalize()` pass restores them on load; `Matcher::compile`
+  *silently drops* bad globs (not a validator) → `validate_rules` checks
+  `markers`/`globs` with `GlobBuilder::build()` explicitly.
+- **Full-copy override:** the editor loads the active set, edits, Save writes the
+  whole thing (atomic temp+rename); per-scan reload applies it next scan; Reset
+  deletes the override.
+- **No dead controls:** cache cards omit the `enabled` toggle (`scan_caches`
+  ignores it); value still round-trips.
+- **Vanilla-TS focus rule:** text/boolean edits mutate the model and never
+  re-render; only structural changes (add/delete entry/chip) touch the DOM.
+- **Files:** `src-tauri/src/{scanner.rs, lib.rs}`, `src/{types.ts, rules-editor.ts,
+  main.ts, styles.css}`, `index.html`.
+- **Not headless-verifiable:** the interactive editor (rendering, chips, save flow)
+  needs a real click-through — builds + type-checks + 20 backend tests + clean boot
+  cover everything else.
+
+---
+
+# Todo — Rules editor redesign (in-app screen, sidebar nav, master–detail)
+
+## Goal
+User feedback on the v1 editor: it was a dialog (wanted an in-app screen), the
+titlebar gear was disliked, and ~65 expanded cards in one scroll were unreadable.
+
+## Plan / progress
+- [x] `index.html`: `.app` → titlebar + `.shell` (`.nav` rail + `.main`); scan chrome moved into `#view-clean`; new `#view-rules` (header + status + open-file + Reset/Save + sub-tabs + `.reditor__split` = `#re-list` / `#re-detail`); removed the gear, `#settings` modal, old `#rules-editor` overlay
+- [x] `rules-editor.ts`: rewritten from overlay to embedded **master–detail** — searchable, collapsible ecosystem-grouped list with quick on/off toggles; selected entry's form on the right; status line + external-open; Save/Reset; focus-preserving in-place row updates
+- [x] `main.ts`: `state.view` + `setView` + left-rail nav; removed all settings code; scoped the filter-pill selector to `.filters .pill` (the editor tabs are `.pill` too)
+- [x] `styles.css`: `.shell`/`.nav`/`.main`/`.view`; embedded `.reditor__*` + master-detail list/detail; removed dead `.modal`/`.setting`/overlay rules
+- [x] Verify: `tsc` + `npm run build` 0 errors; backend unchanged (20/20 still); `tauri dev` boots clean
+
+## Review
+- **Nav:** left rail (Clean / Rules), no titlebar gear. `setView` toggles the two
+  `#view-*` containers and calls `enterRulesView()` on entry.
+- **Master–detail:** chosen over the flat card wall. List = compact rows grouped by
+  ecosystem (collapsible, searchable, quick toggle); detail = one form at a time.
+  Caches rows omit the toggle (`scan_caches` ignores `enabled`).
+- **Edits survive view switches:** `enterRulesView` reloads from disk only when not
+  dirty; the in-memory model persists across Clean↔Rules.
+- **Backend untouched** — pure frontend restructure over the existing
+  load/save/reset/status commands.
+- **Files:** `index.html`, `src/{rules-editor.ts, main.ts, styles.css}`.
+- **Needs click-through:** rail nav, list/search/groups/toggles, select/edit/add/
+  delete, Save→rescan, Reset — headless covers build + boot only.

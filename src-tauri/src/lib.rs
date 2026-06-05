@@ -1,8 +1,9 @@
 mod scanner;
 
 use scanner::{
-    ensure_override_file, rules_status as get_rules_status, scan as run_scan,
-    scan_caches as run_scan_caches, RulesStatus, ScanEvent, ScanOptions,
+    ensure_override_file, load_rules as get_rules, reset_rules as do_reset_rules,
+    rules_status as get_rules_status, save_rules as do_save_rules, scan as run_scan,
+    scan_caches as run_scan_caches, RuleFile, RulesStatus, ScanEvent, ScanOptions,
 };
 use std::path::Path;
 use tauri::ipc::Channel;
@@ -78,6 +79,26 @@ fn rules_status() -> RulesStatus {
     get_rules_status()
 }
 
+/// Load the active ruleset (override if present and valid, else built-in
+/// defaults) as structured data for the in-app editor.
+#[tauri::command]
+fn load_rules() -> RuleFile {
+    get_rules()
+}
+
+/// Validate and save the full ruleset to the override file. The editor's next
+/// scan picks it up (the matcher reloads per scan).
+#[tauri::command]
+fn save_rules(rules: RuleFile) -> Result<(), String> {
+    do_save_rules(rules)
+}
+
+/// Delete the override so the built-in defaults take over again.
+#[tauri::command]
+fn reset_rules() -> Result<(), String> {
+    do_reset_rules()
+}
+
 /// Create the override rules file from the built-in defaults if it doesn't yet
 /// exist, then open it in the user's default editor. Returns the path.
 #[tauri::command]
@@ -124,7 +145,10 @@ pub fn run() {
             scan_caches,
             clean,
             rules_status,
-            open_rules_file
+            open_rules_file,
+            load_rules,
+            save_rules,
+            reset_rules
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

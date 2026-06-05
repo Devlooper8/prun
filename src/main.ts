@@ -6,10 +6,10 @@ import {
   type Location,
   type Category,
   type CategoryId,
-  type RulesStatus,
   categoryColor,
   categoryLabel,
 } from "./types";
+import { enterRulesView } from "./rules-editor";
 
 /* ───────────────────────── Tauri bridge ─────────────────────────
  * When running inside the Tauri shell we call the real Rust scanner.
@@ -136,7 +136,8 @@ const state = {
   ageDays: 14,
   scanning: false, // guards against overlapping scans
   expanded: new Set<string>(), // project groups currently expanded
-  mode: "scan" as "scan" | "caches", // which view is showing
+  mode: "scan" as "scan" | "caches", // scan list vs system-caches list
+  view: "clean" as "clean" | "rules", // top-level screen (left nav rail)
 };
 
 /* ───────────────────────── DOM refs ──────────────────────────── */
@@ -155,9 +156,8 @@ const scanbar = $<HTMLDivElement>("#scanbar");
 const scanFill = $<HTMLDivElement>("#scan-fill");
 const scanRoot = $<HTMLSpanElement>("#scan-root");
 const scanPct = $<HTMLSpanElement>("#scan-pct");
-const settingsModal = $<HTMLDivElement>("#settings");
-const rulesPath = $<HTMLElement>("#rules-path");
-const rulesStatusEl = $<HTMLDivElement>("#rules-status");
+const viewClean = $<HTMLElement>("#view-clean");
+const viewRules = $<HTMLElement>("#view-rules");
 
 /* ───────────────────────── Helpers ───────────────────────────── */
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -589,62 +589,21 @@ function recomputeCategoryTotals() {
       .reduce((s, l) => s + l.size, 0);
 }
 
-/* ───────────────────────── Settings ──────────────────────────── */
-async function openSettings() {
-  settingsModal.hidden = false;
-  await loadRulesStatus();
-}
-function closeSettings() {
-  settingsModal.hidden = true;
-}
-
-/** Populate the Settings panel with the current rules-override status. */
-async function loadRulesStatus() {
-  rulesStatusEl.className = "setting__status";
-  if (!IS_TAURI) {
-    rulesPath.textContent = "%APPDATA%\\prun\\rules.toml";
-    rulesStatusEl.textContent = "Preview mode — run the desktop app to manage your override.";
-    return;
-  }
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const s = await invoke<RulesStatus>("rules_status");
-    rulesPath.textContent = s.override_path || "(no config directory)";
-    const counts = `${s.rule_count} rules, ${s.junk_count} junk patterns, ${s.cache_count} system caches`;
-    if (s.error) {
-      rulesStatusEl.textContent = `⚠ Your override has an error, so defaults are in use: ${s.error}`;
-      rulesStatusEl.className = "setting__status is-error";
-    } else if (s.using_override) {
-      rulesStatusEl.textContent = `Using your override — ${counts} active.`;
-      rulesStatusEl.className = "setting__status is-ok";
-    } else {
-      rulesStatusEl.textContent = `Using built-in defaults — ${counts}. No override file yet.`;
-    }
-  } catch (err) {
-    rulesStatusEl.textContent = `Couldn't read rules status: ${err}`;
-    rulesStatusEl.className = "setting__status is-error";
-  }
-}
-
-/** Create the override file from defaults if needed, then open it for editing. */
-async function openRulesFile() {
-  if (!IS_TAURI) {
-    toast("Available in the desktop app");
-    return;
-  }
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke<string>("open_rules_file");
-    toast("Opened your rules file");
-    await loadRulesStatus(); // the file now exists — reflect that
-  } catch (err) {
-    toast(`Couldn't open rules file: ${err}`);
-  }
+/* ───────────────────────── Navigation ────────────────────────── */
+/** Switch the top-level screen from the left nav rail. */
+function setView(view: "clean" | "rules") {
+  state.view = view;
+  viewClean.hidden = view !== "clean";
+  viewRules.hidden = view !== "rules";
+  document.querySelectorAll<HTMLButtonElement>(".nav__item").forEach((b) =>
+    b.classList.toggle("is-active", b.dataset.view === view)
+  );
+  if (view === "rules") enterRulesView();
 }
 
 /* ───────────────────────── Toast ─────────────────────────────── */
 let toastTimer: number | undefined;
-function toast(msg: string) {
+export function toast(msg: string) {
   let el = document.querySelector<HTMLDivElement>(".toast");
   if (!el) {
     el = document.createElement("div");
@@ -679,8 +638,8 @@ function wire() {
     }
   });
 
-  // filter pills
-  document.querySelectorAll<HTMLButtonElement>(".pill").forEach((pill) => {
+  // filter pills (scoped to the Clean view — the rules editor's tabs are .pill too)
+  document.querySelectorAll<HTMLButtonElement>(".filters .pill").forEach((pill) => {
     pill.addEventListener("click", (e) => {
       if ((e.target as HTMLElement).classList.contains("pill__num")) return;
       const key = pill.dataset.filter as keyof typeof state.filters;
@@ -701,16 +660,10 @@ function wire() {
 
   cleanBtn.addEventListener("click", doClean);
 
-  // settings (rules override)
-  $("#settings-open").addEventListener("click", openSettings);
-  $("#settings-close").addEventListener("click", closeSettings);
-  settingsModal
-    .querySelector<HTMLDivElement>("[data-close]")!
-    .addEventListener("click", closeSettings);
-  $("#rules-open").addEventListener("click", openRulesFile);
-  document.addEventListener("keydown", (e) => {
-    if ((e as KeyboardEvent).key === "Escape" && !settingsModal.hidden) closeSettings();
-  });
+  // top-level nav (left rail): Clean / Rules
+  document.querySelectorAll<HTMLButtonElement>(".nav__item").forEach((b) =>
+    b.addEventListener("click", () => setView(b.dataset.view as "clean" | "rules"))
+  );
 }
 
 /* ───────────────────────── Boot ──────────────────────────────── */

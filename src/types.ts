@@ -44,6 +44,54 @@ export interface RulesStatus {
   cache_count: number;
 }
 
+/* ── Rules editor DTOs (mirror the Rust serde structs; snake_case wire) ──
+ * Backend skips empty arrays / null notes when serializing, so fields can be
+ * absent on load — the editor's normalize() restores them. Keys `rule`/`junk`/
+ * `global_cache` match the TOML table names. */
+export interface RuleDefaults {
+  min_age_days: number;
+  skip_git_tracked: boolean;
+  respect_ignorefile: boolean;
+  move_to_trash: boolean;
+  global_ignore: string[];
+}
+export interface RuleDef {
+  id: string;
+  name: string;
+  ecosystem: string;
+  markers: string[];
+  dirs: string[];
+  globs: string[];
+  reclaim_root: boolean;
+  enabled: boolean;
+  note: string | null;
+}
+export interface JunkDef {
+  id: string;
+  name: string;
+  ecosystem: string;
+  dirs: string[];
+  globs: string[];
+  enabled: boolean;
+  note: string | null;
+}
+export interface CacheDef {
+  id: string;
+  name: string;
+  ecosystem: string;
+  paths: string[];
+  platform: string | null;
+  enabled: boolean;
+  note: string | null;
+}
+export interface RuleFile {
+  schema_version: number;
+  defaults: RuleDefaults;
+  rule: RuleDef[];
+  junk: JunkDef[];
+  global_cache: CacheDef[];
+}
+
 export interface ScanOptions {
   root: string;
   /** when set, only include dirs untouched for >= this many days */
@@ -124,6 +172,9 @@ const ECOSYSTEM_LABELS: Record<string, string> = {
   junk: "OS / junk",
   editor: "Editor caches",
 };
+
+/** Known ecosystem ids, for the editor's ecosystem datalist (free text still allowed). */
+export const KNOWN_ECOSYSTEMS: string[] = Object.keys(ECOSYSTEM_LABELS);
 
 function hslFromString(s: string): string {
   let h = 0;

@@ -99,34 +99,42 @@ fn d_global_ignore() -> Vec<String> {
         .collect()
 }
 
-#[derive(Deserialize)]
-struct RuleFile {
-    #[serde(default)]
-    defaults: Defaults,
-    #[serde(default, rename = "rule")]
-    rules: Vec<Rule>,
-    #[serde(default)]
-    junk: Vec<Junk>,
-    #[serde(default)]
-    global_cache: Vec<GlobalCache>,
+fn d_schema_version() -> u32 {
+    3
+}
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
-#[derive(Deserialize, Clone)]
-struct Defaults {
+/// The whole ruleset. Doubles as the editor's wire DTO: it round-trips through
+/// `toml::to_string_pretty` (root scalar `schema_version` is declared first so it
+/// serializes before the `[defaults]` table and the arrays-of-tables).
+#[derive(Deserialize, Serialize, Clone)]
+pub struct RuleFile {
+    #[serde(default = "d_schema_version")]
+    pub schema_version: u32,
+    #[serde(default)]
+    pub defaults: Defaults,
+    #[serde(default, rename = "rule", skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<Rule>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub junk: Vec<Junk>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub global_cache: Vec<GlobalCache>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct Defaults {
     #[serde(default = "d_min_age")]
-    #[allow(dead_code)] // informational; scan honours the UI's min_age_days
-    min_age_days: u64,
+    pub min_age_days: u64,
     #[serde(default = "d_true")]
-    #[allow(dead_code)]
-    skip_git_tracked: bool,
+    pub skip_git_tracked: bool,
     #[serde(default = "d_true")]
-    #[allow(dead_code)]
-    respect_ignorefile: bool,
+    pub respect_ignorefile: bool,
     #[serde(default = "d_true")]
-    #[allow(dead_code)]
-    move_to_trash: bool,
+    pub move_to_trash: bool,
     #[serde(default = "d_global_ignore")]
-    global_ignore: Vec<String>,
+    pub global_ignore: Vec<String>,
 }
 
 impl Default for Defaults {
@@ -141,62 +149,66 @@ impl Default for Defaults {
     }
 }
 
-#[derive(Deserialize)]
-struct Rule {
+// `enabled` is always emitted (a disabled entry must round-trip visibly); empty
+// arrays / `None` notes / a false `reclaim_root` are skipped to keep the file clean.
+// NOTE: skipped fields are also absent from the JSON sent to the UI, so the
+// frontend normalizes them back (markers ?? [], note ?? null, …).
+#[derive(Deserialize, Serialize, Clone)]
+pub struct Rule {
     #[serde(default)]
-    #[allow(dead_code)]
-    id: String,
+    pub id: String,
     #[serde(default)]
-    #[allow(dead_code)]
-    name: String,
+    pub name: String,
     #[serde(default)]
-    ecosystem: String,
-    #[serde(default)]
-    markers: Vec<String>,
-    #[serde(default)]
-    dirs: Vec<String>,
-    #[serde(default)]
-    globs: Vec<String>,
-    #[serde(default)]
-    reclaim_root: bool,
+    pub ecosystem: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dirs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub globs: Vec<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub reclaim_root: bool,
     #[serde(default = "d_true")]
-    enabled: bool,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct Junk {
+#[derive(Deserialize, Serialize, Clone)]
+pub struct Junk {
     #[serde(default)]
-    #[allow(dead_code)]
-    id: String,
+    pub id: String,
     #[serde(default)]
-    #[allow(dead_code)]
-    name: String,
+    pub name: String,
     #[serde(default)]
-    ecosystem: String,
-    #[serde(default)]
-    dirs: Vec<String>,
-    #[serde(default)]
-    globs: Vec<String>,
+    pub ecosystem: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dirs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub globs: Vec<String>,
     #[serde(default = "d_true")]
-    enabled: bool,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
-#[derive(Deserialize, Clone)]
-struct GlobalCache {
+#[derive(Deserialize, Serialize, Clone)]
+pub struct GlobalCache {
     #[serde(default)]
-    #[allow(dead_code)]
-    id: String,
+    pub id: String,
     #[serde(default)]
-    name: String,
+    pub name: String,
     #[serde(default)]
-    ecosystem: String,
-    #[serde(default)]
-    paths: Vec<String>,
-    #[serde(default)]
-    platform: Option<String>,
+    pub ecosystem: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub platform: Option<String>,
     #[serde(default = "d_true")]
-    #[allow(dead_code)]
-    enabled: bool,
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -476,6 +488,116 @@ pub fn ensure_override_file() -> Result<String, String> {
         fs::write(&path, EMBEDDED).map_err(|e| e.to_string())?;
     }
     Ok(path.to_string_lossy().into_owned())
+}
+
+// ── In-app rules editor: load / save / reset the override ──────────────────────
+
+/// The active ruleset as structured data for the editor: the override if present
+/// and parseable, else the embedded default. Never fails — a broken override
+/// falls back to embedded so the editor always opens with valid data.
+pub fn load_rules() -> RuleFile {
+    if let Some(path) = override_path() {
+        if let Ok(rf) = load_rules_from(&path) {
+            return rf;
+        }
+    }
+    toml::from_str(EMBEDDED).expect("embedded prun-rules.toml must parse")
+}
+
+fn load_rules_from(path: &Path) -> Result<RuleFile, String> {
+    let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
+    toml::from_str(&text).map_err(|e| e.to_string())
+}
+
+/// Validate, serialize, and atomically write the full ruleset to the override.
+pub fn save_rules(rules: RuleFile) -> Result<(), String> {
+    let path = override_path().ok_or("no OS config directory available")?;
+    save_rules_to(&path, &rules)
+}
+
+fn save_rules_to(path: &Path, rules: &RuleFile) -> Result<(), String> {
+    validate_rules(rules)?;
+    let body = toml::to_string_pretty(rules).map_err(|e| format!("serialize: {e}"))?;
+    let text = format!(
+        "# Prun rules — managed by the in-app editor. This override replaces the\n\
+         # built-in defaults wholesale; use \"Reset to defaults\" in the app to revert.\n\n{body}"
+    );
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    write_atomic(path, &text)
+}
+
+/// Delete the override so the embedded defaults take over again. Idempotent.
+pub fn reset_rules() -> Result<(), String> {
+    match override_path() {
+        Some(path) => reset_rules_to(&path),
+        None => Ok(()),
+    }
+}
+
+fn reset_rules_to(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Reject anything that would make a confusing or non-round-trippable ruleset:
+/// empty / duplicate ids, empty ecosystems, and unbuildable glob patterns (which
+/// `Matcher::compile` would otherwise silently drop).
+fn validate_rules(rf: &RuleFile) -> Result<(), String> {
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut check_id = |kind: &str, id: &str| -> Result<(), String> {
+        if id.trim().is_empty() {
+            return Err(format!("a {kind} entry has an empty id"));
+        }
+        if !seen.insert(format!("{kind}:{id}")) {
+            return Err(format!("duplicate {kind} id: {id}"));
+        }
+        Ok(())
+    };
+    for r in &rf.rules {
+        check_id("rule", &r.id)?;
+        if r.ecosystem.trim().is_empty() {
+            return Err(format!("rule \"{}\" has an empty ecosystem", r.id));
+        }
+        check_globs(&r.id, &r.markers)?;
+        check_globs(&r.id, &r.globs)?;
+    }
+    for j in &rf.junk {
+        check_id("junk", &j.id)?;
+        if j.ecosystem.trim().is_empty() {
+            return Err(format!("junk \"{}\" has an empty ecosystem", j.id));
+        }
+        check_globs(&j.id, &j.globs)?;
+    }
+    for c in &rf.global_cache {
+        check_id("cache", &c.id)?;
+    }
+    Ok(())
+}
+
+/// Glob fields only (`markers`, `globs`) — not `dirs` (path segments) or cache
+/// `paths` (may contain `~`), which aren't glob-matched.
+fn check_globs(id: &str, patterns: &[String]) -> Result<(), String> {
+    for p in patterns {
+        if GlobBuilder::new(p).build().is_err() {
+            return Err(format!("rule \"{id}\": invalid glob pattern \"{p}\""));
+        }
+    }
+    Ok(())
+}
+
+/// Write via a temp sibling + rename so a crash mid-write can't leave a
+/// half-written rules file behind.
+fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    let mut tmp = path.as_os_str().to_os_string();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 
 /// Human-readable label for an ecosystem id (curated, with a title-case fallback).
@@ -1466,5 +1588,95 @@ mod tests {
             cfg!(target_os = "macos")
         );
         assert!(cache_applies(&None));
+    }
+
+    // ── rules editor: serialize round-trip + save/load/validate/reset ─
+
+    fn round_trip(rf: &RuleFile) -> RuleFile {
+        let s = toml::to_string_pretty(rf).expect("serialize");
+        toml::from_str(&s).expect("reparse")
+    }
+
+    #[test]
+    fn embedded_round_trips_through_toml() {
+        let rf: RuleFile = toml::from_str(EMBEDDED).unwrap();
+        let back = round_trip(&rf);
+        assert_eq!(rf.rules.len(), back.rules.len());
+        assert_eq!(rf.junk.len(), back.junk.len());
+        assert_eq!(rf.global_cache.len(), back.global_cache.len());
+        assert_eq!(rf.schema_version, back.schema_version);
+        assert_eq!(rf.defaults.global_ignore, back.defaults.global_ignore);
+    }
+
+    #[test]
+    fn round_trip_preserves_notes() {
+        let rf: RuleFile = toml::from_str(EMBEDDED).unwrap();
+        let back = round_trip(&rf);
+        let go = back.rules.iter().find(|r| r.id == "go").expect("go rule present");
+        assert!(
+            go.note.as_deref().unwrap_or("").contains("vendor"),
+            "go note must survive the round-trip; got {:?}",
+            go.note
+        );
+    }
+
+    #[test]
+    fn save_then_load_on_disk() {
+        let root = fresh_tmp("save");
+        let path = root.join("rules.toml");
+        let rf: RuleFile = toml::from_str(EMBEDDED).unwrap();
+        save_rules_to(&path, &rf).expect("save");
+        let loaded = load_rules_from(&path).expect("load");
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(rf.rules.len(), loaded.rules.len());
+        assert_eq!(rf.global_cache.len(), loaded.global_cache.len());
+    }
+
+    #[test]
+    fn validation_rejects_bad_input() {
+        let base: RuleFile = toml::from_str(EMBEDDED).unwrap();
+        assert!(validate_rules(&base).is_ok(), "embedded set must be valid");
+
+        let mut dup = base.clone();
+        dup.rules.push(dup.rules[0].clone());
+        assert!(validate_rules(&dup).is_err(), "duplicate id");
+
+        let mut empty_id = base.clone();
+        empty_id.rules[0].id = String::new();
+        assert!(validate_rules(&empty_id).is_err(), "empty id");
+
+        let mut empty_eco = base.clone();
+        empty_eco.rules[0].ecosystem = String::new();
+        assert!(validate_rules(&empty_eco).is_err(), "empty ecosystem");
+
+        let mut bad_glob = base.clone();
+        bad_glob.rules[0].globs.push("[".to_string());
+        assert!(validate_rules(&bad_glob).is_err(), "unbuildable glob");
+    }
+
+    #[test]
+    fn reset_is_idempotent() {
+        let root = fresh_tmp("reset");
+        let path = root.join("rules.toml");
+        fs::write(&path, "schema_version = 3\n").unwrap();
+        assert!(reset_rules_to(&path).is_ok());
+        assert!(!path.exists());
+        assert!(reset_rules_to(&path).is_ok(), "missing file → still Ok");
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn round_tripped_ruleset_still_detects() {
+        let rf: RuleFile = toml::from_str(EMBEDDED).unwrap();
+        let m = Matcher::compile(round_trip(&rf));
+        let root = fresh_tmp("rtdetect");
+        touch(&root.join("proj/Cargo.toml"));
+        touch(&root.join("proj/target/blob"));
+        touch(&root.join("web/package.json"));
+        touch(&root.join("web/node_modules/x.js"));
+        let arts = run(&m, &root);
+        let _ = fs::remove_dir_all(&root);
+        assert!(arts.iter().any(|(a, c)| a == "/target" && c == "rust"));
+        assert!(arts.iter().any(|(a, c)| a == "/node_modules" && c == "node"));
     }
 }
