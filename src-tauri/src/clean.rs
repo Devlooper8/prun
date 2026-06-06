@@ -2,7 +2,7 @@
 //!
 //! Stays out of the scan/rules domains: given a list of paths it removes each
 //! one (to Trash or permanently) and reports progress over an `emit` closure,
-//! exactly mirroring how the scanner streams its own events.
+//! exactly mirroring how the scan engine streams its own events.
 
 use std::fs;
 use std::path::Path;

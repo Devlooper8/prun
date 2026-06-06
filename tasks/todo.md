@@ -228,3 +228,77 @@ only genuinely-stuck (in-use) folders behind, marked.
   delete, and the in-use partial-failure path (hold a file open, Clean → that row
   stays marked, others vanish, toast "N deleted · 1 couldn't be removed") — headless
   covers tests + build + the browser `simulateClean` preview only.
+
+---
+
+# Todo — Refactor Rust backend into modular, SOLID-aligned structure
+
+## Goal
+Backend lived in 3 files (`main.rs`, `lib.rs`, `scanner.rs` @ 1821 lines mixing
+10+ concerns). Split into focused modules with one reason to change each.
+**Pure refactor — no behavior change.** Public `#[command]` surface frozen.
+
+Baseline before touching: 21 lib tests pass, clippy `-D warnings` clean.
+
+## Target module tree
+```
+src-tauri/src/
+  main.rs        (unchanged)
+  lib.rs         module wiring + run() only
+  commands.rs    #[command] handlers (thin) + os_open
+  fs_util.rs     shared FS helpers (sizes, mtimes, names, expand_root, ignore/git queries)
+  clean.rs       CleanEvent + clean + remove_path
+  rules/{mod,model,matcher,store,labels}.rs
+  scan/{mod,project,caches}.rs
+```
+
+## Commits (each: cargo build + cargo test + clippy -D warnings green)
+- [x] 1. Extract `fs_util.rs` (leaf FS helpers) — `e6c5871`
+- [x] 2. Extract `clean.rs` + `testsupport` — `0d9d3b1`
+- [x] 3. Extract `rules/` (model -> matcher -> store -> labels) + move rules tests — `8cdb932`
+- [x] 4. Extract `scan/` (types+rollup -> project -> caches); delete `scanner.rs` — `4140aa0`
+- [x] 5. Extract `commands.rs`; slim `lib.rs` — `b73d80b`
+- [x] 6. Readability pass: `//!` docs (added inline per commit), final clippy/test
+
+## Constraints
+- Identical command names/signatures/return types; no new deps; same unsafe/panic/error semantics.
+- Tests co-located with their code; shared temp-dir helpers in `#[cfg(test)] testsupport`.
+- Cross-module internals widened to `pub(crate)` only (no public API change).
+- Kept existing param-injection seams (`*_with`, `*_to/_from`, `emit` closure);
+  deliberately NOT adding single-impl `Scanner`/`RuleSource` traits.
+
+## Latent issues found (NOT fixing here)
+1. `rules_status` counts caches without `enabled` filter (rule/junk counts do filter).
+2. `match_dir_entry` is case-sensitive while marker `join().exists()` is case-insensitive on Windows.
+3. GlobSet<->owner parallel-array index coupling is fragile (correct today).
+
+## Review
+- **Result:** 1821-line `scanner.rs` + a fat `lib.rs` became 11 focused files.
+  Backend now: `main.rs` (entry) · `lib.rs` (wiring + `run()` only) ·
+  `commands.rs` (8 thin `#[command]`s + `os_open`) · `fs_util.rs` ·
+  `clean.rs` · `rules/{mod,model,matcher,store,labels}.rs` ·
+  `scan/{mod,project,caches}.rs` · `testsupport.rs` (cfg(test)).
+- **Behavior frozen:** command names/signatures/return types unchanged →
+  frontend untouched (zero TS edits). 21 tests green at every commit; full
+  `cargo build`, `cargo test`, `clippy --all-targets -D warnings` clean. No deps added.
+- **Dependency direction (acyclic):** commands → {scan, clean, rules};
+  scan → {rules, fs_util}; rules/clean/fs_util are leaves.
+- **SOLID, pragmatic:** SRP via the split. Kept the existing param-injection
+  seams (`scan_with`/`scan_caches_with`, `save_rules_to`/`load_rules_from`/
+  `reset_rules_to`, the `emit` closure) and **deliberately did not add**
+  single-impl `Scanner`/`RuleSource` traits — they'd buy nothing the seams
+  don't already give (tests prove it).
+- **Tradeoff:** `Matcher` fields are `pub(crate)` because the scan walk reads
+  the compiled indexes directly. Encapsulating them behind methods would mean
+  re-homing `visit`/`glob_walk` into the matcher — too invasive for a
+  behavior-preserving refactor. Documented at the struct.
+- **Tests co-located** with the code they exercise; shared temp-dir helpers in
+  `#[cfg(test)] testsupport`. `EMBEDDED` re-export is `#[cfg(test)]`-gated
+  (only cross-module tests use it; production code reaches it within `rules`).
+- **`include_str!`** path moved to `../../prun-rules.toml` (now in `rules/model.rs`).
+- **Latent issues left untouched (per instructions):** (1) `rules_status`
+  cache count ignores `enabled`; (2) `match_dir_entry` case-sensitive vs
+  case-insensitive marker `exists()` on Windows; (3) GlobSet<->owner
+  parallel-array index coupling. All pre-existing; flagged, not fixed.
+- **On a branch:** `refactor/backend-modules` (6 commits), left for review/merge.
+
