@@ -1,16 +1,17 @@
 mod clean;
 mod fs_util;
+mod rules;
 mod scanner;
 
 #[cfg(test)]
 mod testsupport;
 
 use clean::{clean as run_clean, CleanEvent};
-use scanner::{
+use rules::{
     ensure_override_file, load_rules as get_rules, reset_rules as do_reset_rules,
-    rules_status as get_rules_status, save_rules as do_save_rules, scan as run_scan,
-    scan_caches as run_scan_caches, RuleFile, RulesStatus, ScanEvent, ScanOptions,
+    rules_status as get_rules_status, save_rules as do_save_rules, RuleFile, RulesStatus,
 };
+use scanner::{scan as run_scan, scan_caches as run_scan_caches, ScanEvent, ScanOptions};
 use tauri::ipc::Channel;
 
 /// Walk the root and stream progress + each reclaimable dir to the UI as it is
