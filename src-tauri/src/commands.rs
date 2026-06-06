@@ -95,24 +95,11 @@ pub fn reset_rules() -> Result<(), String> {
 }
 
 /// Create the override rules file from the built-in defaults if it doesn't yet
-/// exist, then open it in the user's default editor. Returns the path.
+/// exist, then open it with the OS default handler (detached; we don't wait on
+/// it). Returns the path.
 #[tauri::command]
 pub fn open_rules_file() -> Result<String, String> {
     let path = ensure_override_file()?;
-    os_open(&path).map_err(|e| e.to_string())?;
+    open::that_detached(&path).map_err(|e| e.to_string())?;
     Ok(path)
-}
-
-/// Open a path with the OS default handler (detached; we don't wait on it).
-#[cfg(target_os = "windows")]
-fn os_open(path: &str) -> std::io::Result<()> {
-    std::process::Command::new("explorer").arg(path).spawn().map(|_| ())
-}
-#[cfg(target_os = "macos")]
-fn os_open(path: &str) -> std::io::Result<()> {
-    std::process::Command::new("open").arg(path).spawn().map(|_| ())
-}
-#[cfg(all(unix, not(target_os = "macos")))]
-fn os_open(path: &str) -> std::io::Result<()> {
-    std::process::Command::new("xdg-open").arg(path).spawn().map(|_| ())
 }

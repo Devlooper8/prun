@@ -50,8 +50,10 @@ pub(crate) fn dir_size(path: &Path) -> u64 {
         .follow_links(false)
         .into_iter()
         .filter_map(|e| e.ok())
+        // file_type() is free (cached from readdir); filtering before metadata()
+        // skips a stat syscall on every directory and symlink.
+        .filter(|e| e.file_type().is_file())
         .filter_map(|e| e.metadata().ok())
-        .filter(|m| m.is_file())
         .map(|m| m.len())
         .sum()
 }

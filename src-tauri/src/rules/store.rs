@@ -7,8 +7,10 @@
 
 use std::collections::HashSet;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
+use atomicwrites::{AllowOverwrite, AtomicFile};
 use globset::GlobBuilder;
 use serde::Serialize;
 
@@ -203,14 +205,14 @@ fn check_globs(id: &str, patterns: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-/// Write via a temp sibling + rename so a crash mid-write can't leave a
-/// half-written rules file behind.
+/// Write atomically: a temp file in the same dir is written, fsynced, then
+/// atomically renamed over `path` (with the parent dir fsynced on Unix), so a
+/// crash or power loss mid-write can't leave a half-written or unsynced rules
+/// file behind. Handled by the `atomicwrites` crate.
 fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
-    let mut tmp = path.as_os_str().to_os_string();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
-    fs::write(&tmp, contents).map_err(|e| e.to_string())?;
-    fs::rename(&tmp, path).map_err(|e| e.to_string())
+    AtomicFile::new(path, AllowOverwrite)
+        .write(|f| f.write_all(contents.as_bytes()))
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
