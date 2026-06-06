@@ -24,7 +24,7 @@ fn scan_caches_with(
     let now = now_secs();
     let mut pending: Vec<(PathBuf, String, String)> = Vec::new(); // (path, ecosystem, cache name)
     for gc in &matcher.global_caches {
-        if !cache_applies(&gc.platform) {
+        if !gc.enabled || !cache_applies(&gc.platform) {
             continue;
         }
         for raw in &gc.paths {
@@ -91,5 +91,53 @@ mod tests {
             cfg!(target_os = "macos")
         );
         assert!(cache_applies(&None));
+    }
+
+    #[test]
+    fn disabled_cache_is_skipped() {
+        use crate::testsupport::{fresh_tmp, mkdir};
+        use std::sync::Mutex;
+
+        let root = fresh_tmp("syscaches");
+        let on = root.join("cache_on");
+        let off = root.join("cache_off");
+        mkdir(&on);
+        mkdir(&off);
+        // Single-quoted TOML literal strings so Windows backslashes survive.
+        let toml = format!(
+            r#"[[global_cache]]
+id = "on"
+ecosystem = "rust"
+paths = ['{on}']
+
+[[global_cache]]
+id = "off"
+ecosystem = "rust"
+enabled = false
+paths = ['{off}']
+"#,
+            on = on.display(),
+            off = off.display()
+        );
+        let m = Matcher::compile(toml::from_str(&toml).expect("test toml parses"));
+
+        let paths: Mutex<Vec<String>> = Mutex::new(Vec::new());
+        scan_caches_with(&m, &|ev| {
+            if let ScanEvent::Located { location, .. } = ev {
+                paths.lock().unwrap().push(location.path);
+            }
+        })
+        .unwrap();
+        let paths = paths.into_inner().unwrap();
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(
+            paths.iter().any(|p| p.ends_with("cache_on")),
+            "enabled cache must be scanned; got {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.ends_with("cache_off")),
+            "disabled cache must be skipped; got {paths:?}"
+        );
     }
 }

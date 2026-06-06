@@ -85,7 +85,7 @@ pub fn rules_status() -> RulesStatus {
         error,
         rule_count: rf.rules.iter().filter(|r| r.enabled).count(),
         junk_count: rf.junk.iter().filter(|j| j.enabled).count(),
-        cache_count: rf.global_cache.len(),
+        cache_count: rf.global_cache.iter().filter(|c| c.enabled).count(),
     }
 }
 
