@@ -14,14 +14,17 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use ignore::{WalkBuilder, WalkState};
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
+
+use crate::fs_util::{
+    dir_size, expand_root, is_git_ignored, leaf_artifact, load_prunignore, mtime_secs, now_secs,
+    parent_name,
+};
 
 /// The ruleset that ships with the binary. An optional user override at
 /// `<config dir>/prun/rules.toml` (e.g. `%APPDATA%\prun\rules.toml`) wins when
@@ -696,17 +699,6 @@ struct Sink {
     scanned: AtomicU64,
 }
 
-/// Expand a leading `~` to the user's home directory.
-pub fn expand_root(input: &str) -> PathBuf {
-    if let Some(rest) = input.strip_prefix('~') {
-        if let Some(home) = dirs::home_dir() {
-            let rest = rest.trim_start_matches(['/', '\\']);
-            return if rest.is_empty() { home } else { home.join(rest) };
-        }
-    }
-    PathBuf::from(input)
-}
-
 pub fn scan(opts: &ScanOptions, emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
     scan_with(&load_matcher(), opts, emit)
 }
@@ -1206,80 +1198,6 @@ fn remove_path(path: &Path) -> std::io::Result<()> {
     } else {
         fs::remove_file(path)
     }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Filesystem helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn leaf_artifact(p: &Path) -> String {
-    format!(
-        "/{}",
-        p.file_name().map(|s| s.to_string_lossy()).unwrap_or_default()
-    )
-}
-
-fn parent_name(p: &Path) -> String {
-    p.parent()
-        .and_then(|d| d.file_name())
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default()
-}
-
-fn dir_size(path: &Path) -> u64 {
-    WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter_map(|e| e.metadata().ok())
-        .filter(|m| m.is_file())
-        .map(|m| m.len())
-        .sum()
-}
-
-fn mtime_secs(path: &Path) -> u64 {
-    fs::metadata(path)
-        .and_then(|m| m.modified())
-        .ok()
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn load_prunignore(root: &Path) -> Option<Gitignore> {
-    let file = root.join(".prunignore");
-    if !file.exists() {
-        return None;
-    }
-    let mut b = GitignoreBuilder::new(root);
-    b.add(file);
-    b.build().ok()
-}
-
-/// Whether a path is ignored by the git repo that contains it.
-/// Repositories are discovered lazily and cached by their working dir.
-fn is_git_ignored(path: &Path, cache: &mut HashMap<PathBuf, Option<git2::Repository>>) -> bool {
-    let mut dir = path.parent();
-    while let Some(d) = dir {
-        if d.join(".git").exists() {
-            let repo = cache
-                .entry(d.to_path_buf())
-                .or_insert_with(|| git2::Repository::open(d).ok());
-            if let Some(repo) = repo {
-                return repo.is_path_ignored(path).unwrap_or(false);
-            }
-            return false;
-        }
-        dir = d.parent();
-    }
-    false
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

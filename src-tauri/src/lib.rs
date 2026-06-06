@@ -1,3 +1,4 @@
+mod fs_util;
 mod scanner;
 
 use scanner::{
