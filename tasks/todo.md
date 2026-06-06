@@ -267,10 +267,18 @@ src-tauri/src/
 - Kept existing param-injection seams (`*_with`, `*_to/_from`, `emit` closure);
   deliberately NOT adding single-impl `Scanner`/`RuleSource` traits.
 
-## Latent issues found (NOT fixing here)
-1. `rules_status` counts caches without `enabled` filter (rule/junk counts do filter).
-2. `match_dir_entry` is case-sensitive while marker `join().exists()` is case-insensitive on Windows.
-3. GlobSet<->owner parallel-array index coupling is fragile (correct today).
+## Latent issues — found during the refactor, then FIXED (follow-up, user-requested)
+1. [x] Cache `enabled` ignored: `scan_caches` scanned every cache and `rules_status`
+   counted ALL caches, while rules/junk honor `enabled`. Now both honor it. — `43311dd`
+2. [x] `match_dir_entry`/dir-index were case-sensitive while marker `exists()` is
+   case-insensitive on Windows. Added `norm_seg` (lowercase on Win/macOS, identity
+   on Linux); keys + lookups + segment compare all go through it. — `ff891d8`
+3. [x] GlobSet<->owner parallel arrays (fragile index coupling) encapsulated in a
+   `GlobOwners` type built via `add(pattern, owner)`, exposing `matches()`. — `5976ede`
+
+These three are BEHAVIOR changes (fixes 1-2) / robustness (fix 3), made after the
+pure-refactor commits at the user's request. 23 tests (was 21; +2 for fixes 1-2),
+full build/clippy clean.
 
 ## Review
 - **Result:** 1821-line `scanner.rs` + a fat `lib.rs` became 11 focused files.
@@ -296,9 +304,8 @@ src-tauri/src/
   `#[cfg(test)] testsupport`. `EMBEDDED` re-export is `#[cfg(test)]`-gated
   (only cross-module tests use it; production code reaches it within `rules`).
 - **`include_str!`** path moved to `../../prun-rules.toml` (now in `rules/model.rs`).
-- **Latent issues left untouched (per instructions):** (1) `rules_status`
-  cache count ignores `enabled`; (2) `match_dir_entry` case-sensitive vs
-  case-insensitive marker `exists()` on Windows; (3) GlobSet<->owner
-  parallel-array index coupling. All pre-existing; flagged, not fixed.
-- **On a branch:** `refactor/backend-modules` (6 commits), left for review/merge.
+- **Latent issues:** the 3 found were then FIXED in follow-up commits at the
+  user's request (see the section above) — `43311dd`, `ff891d8`, `5976ede`.
+- **On a branch:** `refactor/backend-modules` (6 refactor + 3 fix commits),
+  left for review/merge.
 
