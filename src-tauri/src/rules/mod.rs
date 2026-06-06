@@ -11,7 +11,7 @@ mod model;
 mod store;
 
 pub(crate) use labels::ecosystem_label;
-pub(crate) use matcher::Matcher;
+pub(crate) use matcher::{norm_seg, Matcher};
 pub(crate) use model::RuleFile;
 pub(crate) use store::{
     ensure_override_file, load_matcher, load_rules, reset_rules, rules_status, save_rules,

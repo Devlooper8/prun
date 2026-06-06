@@ -24,7 +24,7 @@ use crate::fs_util::{
     dir_size, expand_root, is_git_ignored, leaf_artifact, load_prunignore, mtime_secs, now_secs,
     parent_name,
 };
-use crate::rules::{load_matcher, Matcher};
+use crate::rules::{load_matcher, norm_seg, Matcher};
 
 use super::{rollup, Location, ScanEvent, ScanOptions};
 
@@ -215,7 +215,7 @@ fn visit(
             return WalkState::Skip;
         }
         // 1. dir rule, name-first + marker-validated (claims only real artifacts)
-        if let Some(entries) = m.dir_index.get(name.as_ref()) {
+        if let Some(entries) = m.dir_index.get(norm_seg(name.as_ref()).as_ref()) {
             for (ri, segs) in entries {
                 let rule = &m.rules[*ri];
                 if !rule.enabled {
@@ -230,7 +230,7 @@ fn visit(
             }
         }
         // 2. junk dir (marker-less)
-        if let Some(entries) = m.junk_dir_index.get(name.as_ref()) {
+        if let Some(entries) = m.junk_dir_index.get(norm_seg(name.as_ref()).as_ref()) {
             for (ji, segs) in entries {
                 if !m.junk[*ji].enabled {
                     continue;
@@ -344,8 +344,9 @@ fn glob_walk(root: &Path, rule_idx: usize, m: &Matcher, claimed: &HashSet<PathBu
 }
 
 /// If `p`'s last `segs.len()` components equal `segs`, return the project root
-/// (`p` with those components stripped). Comparison is case-sensitive, matching
-/// the directory name as it appears on disk.
+/// (`p` with those components stripped). `segs` are already case-normalized by the
+/// matcher, so each disk component is normalized the same way before comparison —
+/// case-insensitive on Windows/macOS, case-sensitive on Linux (see `norm_seg`).
 fn match_dir_entry(p: &Path, segs: &[String]) -> Option<PathBuf> {
     let comps: Vec<&std::ffi::OsStr> = p
         .components()
@@ -359,7 +360,7 @@ fn match_dir_entry(p: &Path, segs: &[String]) -> Option<PathBuf> {
     }
     let start = comps.len() - segs.len();
     for (i, seg) in segs.iter().enumerate() {
-        if comps[start + i] != std::ffi::OsStr::new(seg) {
+        if norm_seg(&comps[start + i].to_string_lossy()).as_ref() != seg.as_str() {
             return None;
         }
     }
@@ -750,6 +751,35 @@ mod tests {
             !arts.iter().any(|(a, _)| a == "/CMakeCache.txt"),
             "contents of a claimed build/ leaked: {arts:?}"
         );
+    }
+
+    /// On case-insensitive filesystems a `Target/` dir on disk must match a
+    /// `dirs=["target"]` rule, mirroring the case-insensitive marker `exists()`
+    /// check. Gated to those platforms (on Linux the FS — and matching — is
+    /// case-sensitive, and the dir couldn't share a name anyway).
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[test]
+    fn dir_match_is_case_insensitive_on_case_insensitive_fs() {
+        let m = compile_str(
+            r#"
+            [[rule]]
+            id="rust"
+            ecosystem="rust"
+            markers=["Cargo.toml"]
+            dirs=["target"]
+            "#,
+        );
+        let root = fresh_tmp("caseins");
+        let proj = root.join("proj");
+        mkdir(&proj);
+        touch(&proj.join("Cargo.toml"));
+        mkdir(&proj.join("Target")); // capital T — the same dir on a case-insensitive FS
+
+        let arts = run(&m, &root);
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(arts.len(), 1, "Target/ should match dirs=[\"target\"]; got {arts:?}");
+        assert!(arts[0].0.eq_ignore_ascii_case("/target"), "got {arts:?}");
+        assert_eq!(arts[0].1, "rust");
     }
 
     fn round_trip(rf: &RuleFile) -> RuleFile {

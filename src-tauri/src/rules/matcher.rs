@@ -92,11 +92,26 @@ fn build_globset(patterns: &[String]) -> Option<GlobSet> {
     b.build().ok()
 }
 
-fn split_segments(entry: &str) -> Vec<String> {
+/// Normalize a path segment for comparison. On case-insensitive filesystems
+/// (Windows, macOS) names match regardless of case — mirroring the marker
+/// `Path::join(..).exists()` check, which is already case-insensitive there; on
+/// Linux matching stays case-sensitive.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub(crate) fn norm_seg(s: &str) -> std::borrow::Cow<'_, str> {
+    std::borrow::Cow::Owned(s.to_lowercase())
+}
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+pub(crate) fn norm_seg(s: &str) -> std::borrow::Cow<'_, str> {
+    std::borrow::Cow::Borrowed(s)
+}
+
+/// Split a dir entry into path segments, each normalized via [`norm_seg`] so the
+/// index keys and the walk's lookups agree on case per platform.
+fn norm_segments(entry: &str) -> Vec<String> {
     entry
         .split(['/', '\\'])
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
+        .map(|s| norm_seg(s).into_owned())
         .collect()
 }
 
@@ -123,7 +138,7 @@ impl Matcher {
             }
             // dir entries are claimed name-first during the walk
             for d in &r.dirs {
-                let segs = split_segments(d);
+                let segs = norm_segments(d);
                 if let Some(last) = segs.last().cloned() {
                     dir_index.entry(last).or_default().push((idx, segs));
                 }
@@ -162,7 +177,7 @@ impl Matcher {
         let mut junk = Vec::with_capacity(rf.junk.len());
         for (idx, j) in rf.junk.into_iter().enumerate() {
             for d in &j.dirs {
-                let segs = split_segments(d);
+                let segs = norm_segments(d);
                 if let Some(last) = segs.last().cloned() {
                     junk_dir_index.entry(last).or_default().push((idx, segs));
                 }
