@@ -1,88 +1,32 @@
-//! Core artifact scanner.
+//! The root-first project scan, in phases:
 //!
-//! Walks a project root, identifies reclaimable build artifacts using the rules
-//! in `prun-rules.toml`, classifies them by ecosystem, and measures their
-//! on-disk size. The ruleset is *root-first*: a directory is a "project root"
-//! for a rule when one of that rule's markers sits directly inside it, and the
-//! rule's `dirs`/`globs` under that root become reclaim candidates.
+//! 1. Parallel discovery ([`ignore`]'s parallel walker) classifies every entry,
+//!    claiming artifact dirs and recording glob-rule project roots.
+//! 2. A parallel subtree walk resolves each rule's recursive `globs` under those
+//!    roots, pruning already-claimed dirs.
+//! 3. Sequential size-independent filtering (subsumption, prunignore, git-ignore,
+//!    age) — git2's repo cache is !Send, so this stays single-threaded.
+//! 4. Parallel sizing, streaming one `Located` event per artifact.
 //!
-//! The walk never descends *into* a matched artifact dir (no point sizing
-//! node_modules file by file twice) and never enters a VCS metadata dir.
+//! The walk never descends *into* a matched artifact dir, and never enters VCS
+//! metadata (via the ruleset's `global_ignore`).
 
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use ignore::{WalkBuilder, WalkState};
 use rayon::prelude::*;
-use serde::{Deserialize, Serialize};
 use walkdir::WalkDir;
 
 use crate::fs_util::{
     dir_size, expand_root, is_git_ignored, leaf_artifact, load_prunignore, mtime_secs, now_secs,
     parent_name,
 };
-use crate::rules::{ecosystem_label, load_matcher, Matcher};
+use crate::rules::{load_matcher, Matcher};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Wire types (serialized to the UI). `category` is the rule's ecosystem id.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// One reclaimable path (a directory or a single file).
-#[derive(Clone, Serialize)]
-pub struct Location {
-    pub path: String,
-    pub project: String,
-    pub artifact: String,
-    pub category: String,
-    pub size: u64,
-    pub age_secs: u64,
-    pub git_ignored: bool,
-}
-
-#[derive(Clone, Serialize)]
-pub struct Category {
-    pub id: String,
-    pub label: String,
-    pub size: u64,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScanOptions {
-    pub root: String,
-    pub min_age_days: Option<u64>,
-    pub skip_git_tracked: bool,
-    pub respect_prunignore: bool,
-}
-
-/// Streamed progress from a running scan, delivered to the UI over a Channel.
-/// The `kind` tag plus camelCase variants line up with the TS `ScanEvent` union.
-#[derive(Clone, Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum ScanEvent {
-    /// Periodic heartbeat while walking the tree, before any size is known.
-    Discovering { scanned: u64 },
-    /// Discovery finished; `total` artifacts are about to be sized.
-    Discovered { total: usize },
-    /// One artifact has been sized. `done`/`total` drive the progress bar.
-    Located {
-        location: Location,
-        done: usize,
-        total: usize,
-    },
-    /// Scan complete, with the final category roll-up.
-    Done {
-        root: String,
-        categories: Vec<Category>,
-    },
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Scanning
-// ─────────────────────────────────────────────────────────────────────────────
+use super::{rollup, Location, ScanEvent, ScanOptions};
 
 /// A reclaim candidate discovered before the size-independent filters run.
 #[derive(Clone)]
@@ -443,102 +387,12 @@ struct PendingLocation {
     git_ignored: bool,
 }
 
-fn rollup(locations: &[Location]) -> Vec<Category> {
-    let mut totals: HashMap<String, u64> = HashMap::new();
-    for loc in locations {
-        *totals.entry(loc.category.clone()).or_default() += loc.size;
-    }
-    let mut categories: Vec<Category> = totals
-        .into_iter()
-        .map(|(id, size)| Category {
-            label: ecosystem_label(&id),
-            id,
-            size,
-        })
-        .collect();
-    categories.sort_by(|a, b| b.size.cmp(&a.size));
-    categories
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// System caches (per-user shared caches; a separate view, never auto-selected)
-// ─────────────────────────────────────────────────────────────────────────────
-
-pub fn scan_caches(emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
-    scan_caches_with(&load_matcher(), emit)
-}
-
-fn scan_caches_with(
-    matcher: &Matcher,
-    emit: &(dyn Fn(ScanEvent) + Sync),
-) -> Result<(), String> {
-    let now = now_secs();
-    let mut pending: Vec<(PathBuf, String, String)> = Vec::new(); // (path, ecosystem, cache name)
-    for gc in &matcher.global_caches {
-        if !cache_applies(&gc.platform) {
-            continue;
-        }
-        for raw in &gc.paths {
-            let p = expand_root(raw);
-            if fs::symlink_metadata(&p).is_ok() {
-                pending.push((p, gc.ecosystem.clone(), gc.name.clone()));
-            }
-        }
-    }
-
-    let total = pending.len();
-    emit(ScanEvent::Discovered { total });
-
-    let done = AtomicUsize::new(0);
-    let mut locations: Vec<Location> = pending
-        .par_iter()
-        .map(|(p, eco, name)| {
-            let location = Location {
-                path: p.to_string_lossy().into_owned(),
-                project: name.clone(),
-                artifact: leaf_artifact(p),
-                category: eco.clone(),
-                size: dir_size(p),
-                age_secs: now.saturating_sub(mtime_secs(p)),
-                git_ignored: true,
-            };
-            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
-            emit(ScanEvent::Located {
-                location: location.clone(),
-                done: n,
-                total,
-            });
-            location
-        })
-        .collect();
-
-    locations.sort_by(|a, b| b.size.cmp(&a.size));
-    emit(ScanEvent::Done {
-        root: "System caches".to_string(),
-        categories: rollup(&locations),
-    });
-    Ok(())
-}
-
-/// A `platform = "macos"` cache is only relevant on macOS.
-fn cache_applies(platform: &Option<String>) -> bool {
-    match platform.as_deref() {
-        Some("macos") => cfg!(target_os = "macos"),
-        Some("windows") => cfg!(target_os = "windows"),
-        Some("linux") => cfg!(target_os = "linux"),
-        _ => true,
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Tests
-// ─────────────────────────────────────────────────────────────────────────────
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::rules::{RuleFile, EMBEDDED};
     use crate::testsupport::{fresh_tmp, mkdir, touch};
+    use std::fs;
 
     fn embedded() -> Matcher {
         Matcher::compile(toml::from_str(EMBEDDED).expect("embedded parses"))
@@ -896,16 +750,6 @@ mod tests {
             !arts.iter().any(|(a, _)| a == "/CMakeCache.txt"),
             "contents of a claimed build/ leaked: {arts:?}"
         );
-    }
-
-    #[test]
-    fn macos_only_cache_excluded_off_mac() {
-        // The macOS-only cache (Xcode DerivedData) only applies on macOS.
-        assert_eq!(
-            cache_applies(&Some("macos".to_string())),
-            cfg!(target_os = "macos")
-        );
-        assert!(cache_applies(&None));
     }
 
     fn round_trip(rf: &RuleFile) -> RuleFile {
