@@ -1,10 +1,15 @@
+mod clean;
 mod fs_util;
 mod scanner;
 
+#[cfg(test)]
+mod testsupport;
+
+use clean::{clean as run_clean, CleanEvent};
 use scanner::{
-    clean as run_clean, ensure_override_file, load_rules as get_rules, reset_rules as do_reset_rules,
+    ensure_override_file, load_rules as get_rules, reset_rules as do_reset_rules,
     rules_status as get_rules_status, save_rules as do_save_rules, scan as run_scan,
-    scan_caches as run_scan_caches, CleanEvent, RuleFile, RulesStatus, ScanEvent, ScanOptions,
+    scan_caches as run_scan_caches, RuleFile, RulesStatus, ScanEvent, ScanOptions,
 };
 use tauri::ipc::Channel;
 
