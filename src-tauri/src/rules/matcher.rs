@@ -56,15 +56,14 @@ pub(crate) struct Matcher {
     pub(crate) dir_index: HashMap<String, Vec<(usize, Vec<String>)>>,
     /// last path segment -> (junk_idx, full segments) for every junk `dirs` entry.
     pub(crate) junk_dir_index: HashMap<String, Vec<(usize, Vec<String>)>>,
-    /// Combined junk file/dir glob patterns (matched against a base name).
-    pub(crate) junk_glob_set: GlobSet,
-    pub(crate) junk_glob_owner: Vec<usize>,
+    /// Junk file/dir glob patterns, each paired with its owning junk index.
+    pub(crate) junk_globs: GlobOwners,
     /// Rules whose marker presence makes the *containing* dir the artifact.
     pub(crate) reclaim_rules: Vec<usize>,
     /// For glob-bearing rules: marker name -> rule indices (root detection).
     pub(crate) glob_marker_exact: HashMap<String, Vec<usize>>,
-    pub(crate) glob_marker_set: GlobSet,
-    pub(crate) glob_marker_owner: Vec<usize>,
+    /// Glob markers, each paired with its owning rule index (root detection).
+    pub(crate) glob_markers: GlobOwners,
     pub(crate) rules: Vec<CompiledRule>,
     pub(crate) junk: Vec<CompiledJunk>,
     pub(crate) global_caches: Vec<GlobalCache>,
@@ -90,6 +89,53 @@ fn build_globset(patterns: &[String]) -> Option<GlobSet> {
         return None;
     }
     b.build().ok()
+}
+
+/// A compiled glob set whose matches map back to owner indices. Patterns and
+/// owners are only ever appended together (via [`GlobOwnersBuilder::add`]), so a
+/// GlobSet match index always maps straight back to an owner — callers read owners
+/// via [`matches`](GlobOwners::matches) and never touch the parallel indexing.
+pub(crate) struct GlobOwners {
+    set: GlobSet,
+    owners: Vec<usize>,
+}
+
+impl GlobOwners {
+    /// The owner index of every glob that matches `name`.
+    pub(crate) fn matches<'a>(&'a self, name: &Path) -> impl Iterator<Item = usize> + 'a {
+        self.set.matches(name).into_iter().map(move |i| self.owners[i])
+    }
+}
+
+/// Builds a [`GlobOwners`], appending each pattern and its owner in lockstep.
+struct GlobOwnersBuilder {
+    builder: GlobSetBuilder,
+    owners: Vec<usize>,
+}
+
+impl GlobOwnersBuilder {
+    fn new() -> Self {
+        GlobOwnersBuilder {
+            builder: GlobSetBuilder::new(),
+            owners: Vec::new(),
+        }
+    }
+
+    /// Append `pattern` owned by `owner`. An unbuildable glob is skipped (matching
+    /// the original lenient compile), so `owners` stays aligned with the set.
+    fn add(&mut self, pattern: &str, owner: usize) {
+        if let Ok(g) = GlobBuilder::new(pattern).literal_separator(true).build() {
+            self.builder.add(g);
+            self.owners.push(owner);
+        }
+    }
+
+    fn build(self) -> GlobOwners {
+        GlobOwners {
+            set: self.builder.build().unwrap_or_else(|_| GlobSet::empty()),
+            owners: self.owners,
+        }
+    }
 }
 
 /// Normalize a path segment for comparison. On case-insensitive filesystems
@@ -122,8 +168,7 @@ impl Matcher {
         let mut dir_index: HashMap<String, Vec<(usize, Vec<String>)>> = HashMap::new();
         let mut reclaim_rules = Vec::new();
         let mut glob_marker_exact: HashMap<String, Vec<usize>> = HashMap::new();
-        let mut glob_marker_builder = GlobSetBuilder::new();
-        let mut glob_marker_owner: Vec<usize> = Vec::new();
+        let mut marker_globs = GlobOwnersBuilder::new();
         let mut rules = Vec::with_capacity(rf.rules.len());
 
         for (idx, r) in rf.rules.into_iter().enumerate() {
@@ -152,10 +197,7 @@ impl Matcher {
                     glob_marker_exact.entry(m.clone()).or_default().push(idx);
                 }
                 for m in &glob_markers {
-                    if let Ok(g) = GlobBuilder::new(m).literal_separator(true).build() {
-                        glob_marker_builder.add(g);
-                        glob_marker_owner.push(idx);
-                    }
+                    marker_globs.add(m, idx);
                 }
             }
             rules.push(CompiledRule {
@@ -172,8 +214,7 @@ impl Matcher {
         }
 
         let mut junk_dir_index: HashMap<String, Vec<(usize, Vec<String>)>> = HashMap::new();
-        let mut junk_glob_builder = GlobSetBuilder::new();
-        let mut junk_glob_owner: Vec<usize> = Vec::new();
+        let mut junk_globs = GlobOwnersBuilder::new();
         let mut junk = Vec::with_capacity(rf.junk.len());
         for (idx, j) in rf.junk.into_iter().enumerate() {
             for d in &j.dirs {
@@ -183,10 +224,7 @@ impl Matcher {
                 }
             }
             for g in &j.globs {
-                if let Ok(glob) = GlobBuilder::new(g).literal_separator(true).build() {
-                    junk_glob_builder.add(glob);
-                    junk_glob_owner.push(idx);
-                }
+                junk_globs.add(g, idx);
             }
             junk.push(CompiledJunk {
                 ecosystem: j.ecosystem,
@@ -201,12 +239,10 @@ impl Matcher {
             global_ignore,
             dir_index,
             junk_dir_index,
-            junk_glob_set: junk_glob_builder.build().unwrap_or_else(|_| GlobSet::empty()),
-            junk_glob_owner,
+            junk_globs: junk_globs.build(),
             reclaim_rules,
             glob_marker_exact,
-            glob_marker_set: glob_marker_builder.build().unwrap_or_else(|_| GlobSet::empty()),
-            glob_marker_owner,
+            glob_markers: marker_globs.build(),
             rules,
             junk,
             global_caches: rf.global_cache,

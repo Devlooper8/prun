@@ -268,11 +268,11 @@ fn visit(
                     roots.push((parent.to_path_buf(), *ri));
                 }
             }
-            let hits = m.glob_marker_set.matches(Path::new(name.as_ref()));
-            if !hits.is_empty() {
+            let mut owners = m.glob_markers.matches(Path::new(name.as_ref())).peekable();
+            if owners.peek().is_some() {
                 let mut roots = sink.roots.lock().unwrap();
-                for gi in hits {
-                    roots.push((parent.to_path_buf(), m.glob_marker_owner[gi]));
+                for ri in owners {
+                    roots.push((parent.to_path_buf(), ri));
                 }
             }
         }
@@ -282,9 +282,8 @@ fn visit(
 
 /// Lowest-index junk rule whose glob matches `name`, if any.
 fn junk_glob_owner(m: &Matcher, name: &str) -> Option<usize> {
-    let hits = m.junk_glob_set.matches(Path::new(name));
-    hits.into_iter()
-        .map(|gi| m.junk_glob_owner[gi])
+    m.junk_globs
+        .matches(Path::new(name))
         .filter(|&ji| m.junk[ji].enabled)
         .min()
 }
