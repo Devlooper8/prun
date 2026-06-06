@@ -112,6 +112,18 @@ export type ScanEvent =
   | { kind: "located"; location: Location; done: number; total: number }
   | { kind: "done"; root: string; categories: Category[] };
 
+/**
+ * Progress streamed from the backend `clean` command over a Tauri Channel.
+ * Mirrors the Rust `CleanEvent` enum. `done`/`total` drive the progress bar;
+ * `done` excludes the in-flight path on `removing`, includes it on
+ * `removed`/`failed`.
+ */
+export type CleanEvent =
+  | { kind: "removing"; path: string; done: number; total: number }
+  | { kind: "removed"; path: string; done: number; total: number }
+  | { kind: "failed"; path: string; error: string; done: number; total: number }
+  | { kind: "done"; removed: number; failed: number };
+
 /* The ruleset spans ~26 ecosystems, so colours/labels are resolved by id rather
  * than a fixed map. Known ecosystems get a curated colour; anything else gets a
  * stable colour hashed from its id so it stays distinct and consistent. */

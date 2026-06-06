@@ -1,11 +1,10 @@
 mod scanner;
 
 use scanner::{
-    ensure_override_file, load_rules as get_rules, reset_rules as do_reset_rules,
+    clean as run_clean, ensure_override_file, load_rules as get_rules, reset_rules as do_reset_rules,
     rules_status as get_rules_status, save_rules as do_save_rules, scan as run_scan,
-    scan_caches as run_scan_caches, RuleFile, RulesStatus, ScanEvent, ScanOptions,
+    scan_caches as run_scan_caches, CleanEvent, RuleFile, RulesStatus, ScanEvent, ScanOptions,
 };
-use std::path::Path;
 use tauri::ipc::Channel;
 
 /// Walk the root and stream progress + each reclaimable dir to the UI as it is
@@ -38,35 +37,24 @@ async fn scan_caches(on_event: Channel<ScanEvent>) -> Result<(), String> {
     .map_err(|e| e.to_string())?
 }
 
-/// Remove the selected paths. When `to_trash` is true they go to the system
-/// Trash (recoverable); otherwise they are permanently deleted. Each path may
-/// be a directory, a file, or a symlink.
+/// Remove the selected paths, streaming per-path progress to the UI over
+/// `on_event` (like `scan`) so it can show a progress bar and drop each row as
+/// its deletion confirms. When `to_trash` is true paths go to the system Trash
+/// (recoverable); otherwise they are permanently deleted. Each path may be a
+/// directory, a file, or a symlink. Per-path failures are reported in the stream
+/// and never abort the rest of the batch.
 #[tauri::command]
-async fn clean(paths: Vec<String>, to_trash: bool) -> Result<usize, String> {
+async fn clean(
+    paths: Vec<String>,
+    to_trash: bool,
+    on_event: Channel<CleanEvent>,
+) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let mut removed = 0usize;
-        let mut errors = Vec::new();
-        for p in paths {
-            let path = Path::new(&p);
-            // symlink_metadata (not exists) so a dangling symlink is still removable.
-            if std::fs::symlink_metadata(path).is_err() {
-                continue;
-            }
-            let result = if to_trash {
-                trash::delete(path).map_err(|e| e.to_string())
-            } else {
-                remove_path(path).map_err(|e| e.to_string())
-            };
-            match result {
-                Ok(_) => removed += 1,
-                Err(e) => errors.push(format!("{p}: {e}")),
-            }
-        }
-        if errors.is_empty() {
-            Ok(removed)
-        } else {
-            Err(errors.join("; "))
-        }
+        run_clean(&paths, to_trash, &move |event| {
+            // A dropped receiver (window closed mid-clean) is not worth aborting
+            // the deletions over — just stop trying to deliver.
+            let _ = on_event.send(event);
+        })
     })
     .await
     .map_err(|e| e.to_string())?
@@ -120,20 +108,6 @@ fn os_open(path: &str) -> std::io::Result<()> {
 #[cfg(all(unix, not(target_os = "macos")))]
 fn os_open(path: &str) -> std::io::Result<()> {
     std::process::Command::new("xdg-open").arg(path).spawn().map(|_| ())
-}
-
-/// Permanently remove a file, directory, or symlink. A directory's contents are
-/// removed recursively; a symlink is removed without following it (on Windows a
-/// directory symlink needs `remove_dir`, so fall back to it).
-fn remove_path(path: &Path) -> std::io::Result<()> {
-    let ft = std::fs::symlink_metadata(path)?.file_type();
-    if ft.is_symlink() {
-        std::fs::remove_file(path).or_else(|_| std::fs::remove_dir(path))
-    } else if ft.is_dir() {
-        std::fs::remove_dir_all(path)
-    } else {
-        std::fs::remove_file(path)
-    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

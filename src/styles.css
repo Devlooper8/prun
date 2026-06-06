@@ -255,6 +255,12 @@ body {
 .loc__sub  { color: var(--txt-faint); }
 .loc__leaf { color: var(--txt); font-weight: 540; }
 
+/* a row a clean couldn't remove (e.g. a file inside is in use) — it stays
+ * listed and selected so it can be retried; a warm accent flags why. */
+.loc--failed { box-shadow: inset 2px 0 0 #d8893f; background: rgba(216, 137, 63, .06); }
+.loc--failed:hover { background: rgba(216, 137, 63, .11); }
+.loc--failed .loc__leaf { color: #e2a463; }
+
 /* ── Scan progress strip ────────────────────────────────────── *
  * Classic solid-blue bar under the scan-root line: a determinate fill while
  * sizing, a solid-blue sliding block while discovering (total unknown). */

@@ -183,3 +183,48 @@ titlebar gear was disliked, and ~65 expanded cards in one scroll were unreadable
 - **Files:** `index.html`, `src/{rules-editor.ts, main.ts, styles.css}`.
 - **Needs click-through:** rail nav, list/search/groups/toggles, select/edit/add/
   delete, Save→rescan, Reset — headless covers build + boot only.
+
+---
+
+# Todo — Streaming "Clean selected" (live progress + list updates)
+
+## Goal
+Clicking **Clean selected** gave no feedback and left the list stale: deleted
+folders stayed listed at their **original** size. Root cause — `clean` was a
+single fire-and-forget call that returned **all-or-nothing**: one locked file
+(routine on Windows: an IDE / rust-analyzer / AV holding a handle in
+`target`/`node_modules`) made it return `Err`, so the frontend `catch` removed
+**nothing** — even the dirs it *had* deleted — and a half-emptied folder kept its
+full size. Fix: stream `clean` per-path (the pattern `scan` already uses), drive
+an in-app progress bar, drop each row the moment its deletion confirms, and leave
+only genuinely-stuck (in-use) folders behind, marked.
+
+## Plan / progress
+- [x] `scanner.rs`: `CleanEvent` enum (`removing`/`removed`/`failed`/`done`, serde-tagged camelCase, mirrors `ScanEvent`); `pub fn clean(paths, to_trash, emit)` — sequential, largest-first (caller-ordered), already-absent path counts as removed, per-path failures reported and never abort the batch; **moved** `remove_path` here from lib.rs
+- [x] `lib.rs`: `clean` command → thin `spawn_blocking` + `Channel<CleanEvent>` wrapper (near-exact copy of `scan`); dropped the old all-or-nothing loop, local `remove_path`, and unused `use std::path::Path`
+- [x] `types.ts`: `CleanEvent` union mirroring the Rust enum
+- [x] `main.ts`: `CleanHandlers`/`dispatchClean`/`runClean` (+ browser `simulateClean` that fails the last path); `showCleanbar`/`cleanProgress` reuse the scan strip as a determinate "Cleaning… <path>" bar; `state.cleaning` guard + `state.failed` (path→error); rewritten `doClean` (largest-first, live `removeLocation` per `removed`, failed rows kept+selected for retry, rolled-up categories + toast summary); `cleaning` guard added to `doScan`/`doScanCaches`; `updateFooter` keeps Clean disabled mid-clean; `loc--failed` marker + tooltip in `renderChild`
+- [x] `styles.css`: `.loc--failed` warm-amber accent (warning, not delete-red)
+- [x] New test `clean_streams_and_removes` (two real dirs + one already-absent → 3×`Removed`, `Done{removed:3,failed:0}`, dirs gone on disk)
+- [x] Verify: `cargo test` **21/21**, `cargo build --lib` exit 0 / 0 warnings, `tsc --noEmit` + `npm run build` exit 0
+
+## Review
+- **One change fixes both bugs.** Streaming per-path results means successes are
+  removed live and failures stay listed — the all-or-nothing `Err` that discarded
+  every UI update is gone. Deletion semantics are **unchanged** (`trash::delete` /
+  `remove_dir_all`); only feedback + UI reconciliation changed.
+- **UX (confirmed with user):** the app's own progress bar, not a native OS dialog
+  — cross-platform, matches the scan strip, and the native `IFileOperation` route
+  was Windows-only + still wouldn't reconcile the in-app list.
+- **Partial failure is now first-class:** stuck rows keep a warm `loc--failed`
+  accent + tooltip (the OS error) and **stay selected**, so Clean re-enables for an
+  immediate retry; a successful retry clears the stale failure (`removeLocation`).
+- **Largest-first ordering** (frontend-sorted) frees the biggest space first →
+  strong perceived progress; sequential deletion keeps the single-path label honest.
+- **Summary tally** comes from `state.failed.size` (what's actually marked), which
+  agrees with the backend `Done` counts.
+- **Files:** `src-tauri/src/{scanner.rs, lib.rs}`, `src/{types.ts, main.ts, styles.css}`.
+- **Needs click-through:** real progress bar + live row removal during a multi-GB
+  delete, and the in-use partial-failure path (hold a file open, Clean → that row
+  stays marked, others vanish, toast "N deleted · 1 couldn't be removed") — headless
+  covers tests + build + the browser `simulateClean` preview only.

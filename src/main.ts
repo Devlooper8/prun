@@ -3,6 +3,7 @@ import {
   type ScanResult,
   type ScanOptions,
   type ScanEvent,
+  type CleanEvent,
   type Location,
   type Category,
   type CategoryId,
@@ -101,13 +102,62 @@ async function simulateCaches(h: ScanHandlers): Promise<void> {
   h.onDone("System caches", rollupCategories(caches));
 }
 
-async function invokeClean(paths: string[], toTrash: boolean): Promise<number> {
-  if (IS_TAURI) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<number>("clean", { paths, toTrash });
+/** Callbacks the clean drives as per-path results stream in. */
+interface CleanHandlers {
+  onRemoving(path: string, done: number, total: number): void;
+  onRemoved(path: string, done: number, total: number): void;
+  onFailed(path: string, error: string, done: number, total: number): void;
+  onDone(removed: number, failed: number): void;
+}
+
+/** Route one streamed clean Channel event to the handler set. */
+function dispatchClean(h: CleanHandlers, ev: CleanEvent): void {
+  switch (ev.kind) {
+    case "removing": h.onRemoving(ev.path, ev.done, ev.total); break;
+    case "removed": h.onRemoved(ev.path, ev.done, ev.total); break;
+    case "failed": h.onFailed(ev.path, ev.error, ev.done, ev.total); break;
+    case "done": h.onDone(ev.removed, ev.failed); break;
   }
-  await delay(400);
-  return paths.length;
+}
+
+/**
+ * Delete `paths`, dispatching streamed per-path progress to `handlers`. In the
+ * Tauri shell this opens a Channel to the Rust `clean` command; in a plain
+ * browser it replays a fake sequence so the UI stays explorable.
+ */
+async function runClean(
+  paths: string[],
+  toTrash: boolean,
+  handlers: CleanHandlers
+): Promise<void> {
+  if (IS_TAURI) {
+    const { invoke, Channel } = await import("@tauri-apps/api/core");
+    const channel = new Channel<CleanEvent>();
+    channel.onmessage = (ev) => dispatchClean(handlers, ev);
+    await invoke("clean", { paths, toTrash, onEvent: channel });
+    return;
+  }
+  await simulateClean(paths, handlers);
+}
+
+/** Browser-only: fake the clean stream, failing the last path (when there is
+ *  more than one) so the failed-row treatment stays explorable. */
+async function simulateClean(paths: string[], h: CleanHandlers): Promise<void> {
+  const total = paths.length;
+  let removed = 0;
+  let failed = 0;
+  for (const path of paths) {
+    h.onRemoving(path, removed + failed, total);
+    await delay(260);
+    if (total > 1 && path === paths[paths.length - 1]) {
+      failed++;
+      h.onFailed(path, "in use (simulated)", removed + failed, total);
+    } else {
+      removed++;
+      h.onRemoved(path, removed + failed, total);
+    }
+  }
+  h.onDone(removed, failed);
 }
 
 async function pickFolder(): Promise<string | null> {
@@ -135,6 +185,8 @@ const state = {
   filters: { age: false, git: false, prunignore: false },
   ageDays: 14,
   scanning: false, // guards against overlapping scans
+  cleaning: false, // guards against overlapping cleans / scans during a clean
+  failed: new Map<string, string>(), // path → error for rows a clean couldn't remove
   expanded: new Set<string>(), // project groups currently expanded
   mode: "scan" as "scan" | "caches", // scan list vs system-caches list
   view: "clean" as "clean" | "rules", // top-level screen (left nav rail)
@@ -282,6 +334,26 @@ function scanSizing(frac: number) {
   scanPct.textContent = `${Math.round(pct)}%`;
 }
 
+/* ── clean progress ─────────────────────────────────────────────── *
+ * Reuses the scan strip as a determinate "Cleaning…" bar: the total is known up
+ * front, so it starts determinate and advances as each path is removed. */
+function showCleanbar() {
+  scanbar.hidden = false;
+  scanbar.classList.remove("scanbar--indeterminate");
+  scanRoot.textContent = "Cleaning…";
+  scanFill.style.width = "0%";
+  scanPct.textContent = "0%";
+}
+/** Last two segments of a path, e.g. "space-sim/target" — the meaningful tail. */
+function shortPath(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts.slice(-2).join("/") || path;
+}
+function cleanProgress(path: string, done: number, total: number) {
+  scanRoot.textContent = `Cleaning… ${shortPath(path)}`;
+  scanSizing(total === 0 ? 1 : done / total);
+}
+
 /* Coalesce bursts of streamed `located` events into one repaint per frame. */
 let rafPending = false;
 function scheduleRender() {
@@ -401,7 +473,9 @@ function renderChild(
   root: string
 ): HTMLLIElement {
   const li = document.createElement("li");
-  li.className = "loc loc--child";
+  const failure = state.failed.get(loc.path);
+  li.className = failure ? "loc loc--child loc--failed" : "loc loc--child";
+  if (failure) li.title = `Couldn't remove — ${failure}`;
   const sub = subPathOf(loc.path, root);
   const cut = sub.lastIndexOf("/");
   const prefix = cut >= 0 ? sub.slice(0, cut + 1) : "";
@@ -446,12 +520,13 @@ function updateFooter() {
   const total = chosen.reduce((s, l) => s + l.size, 0);
   selCount.textContent = String(chosen.length);
   selSize.textContent = fmtSize(total);
-  cleanBtn.disabled = chosen.length === 0;
+  // stays disabled mid-clean even though rows (and selection) shrink live
+  cleanBtn.disabled = state.cleaning || chosen.length === 0;
 }
 
 /* ───────────────────────── Actions ───────────────────────────── */
 async function doScan() {
-  if (state.scanning) return; // ignore overlapping scans
+  if (state.scanning || state.cleaning) return; // ignore overlapping scans/cleans
   const opts: ScanOptions = {
     root: rootInput.value.trim() || "~/Projects",
     minAgeDays: state.filters.age ? state.ageDays : null,
@@ -468,6 +543,7 @@ async function doScan() {
   state.selected.clear();
   state.catsOn.clear();
   state.expanded.clear();
+  state.failed.clear();
   let maxDone = 0;
 
   showScanbar(opts.root);
@@ -513,7 +589,7 @@ async function doScan() {
 /** Scan the per-user system caches. A separate view: never auto-selected, since
  *  these are shared across projects and slow to rebuild. */
 async function doScanCaches() {
-  if (state.scanning) return;
+  if (state.scanning || state.cleaning) return;
   state.scanning = true;
   state.mode = "caches";
   rescanBtn.disabled = true;
@@ -522,6 +598,7 @@ async function doScanCaches() {
   state.selected.clear();
   state.catsOn.clear();
   state.expanded.clear();
+  state.failed.clear();
   let maxDone = 0;
 
   showScanbar("System caches");
@@ -562,31 +639,75 @@ async function doScanCaches() {
   }
 }
 
-async function doClean() {
-  const paths = [...state.selected];
-  if (!paths.length) return;
-  const verb = trashCb.checked ? "moved to Trash" : "deleted";
-  cleanBtn.disabled = true;
-  try {
-    const n = await invokeClean(paths, trashCb.checked);
-    if (state.result)
-      state.result.locations = state.result.locations.filter((l) => !state.selected.has(l.path));
-    state.selected.clear();
-    recomputeCategoryTotals();
-    render();
-    toast(`${n} location${n === 1 ? "" : "s"} ${verb}`);
-  } catch (err) {
-    toast(`Clean failed: ${err}`);
-    cleanBtn.disabled = false;
-  }
+/** Drop one location from the list + selection as its deletion confirms (and
+ *  clear any stale failure for it, e.g. on a successful retry). */
+function removeLocation(path: string) {
+  if (!state.result) return;
+  state.result.locations = state.result.locations.filter((l) => l.path !== path);
+  state.selected.delete(path);
+  state.failed.delete(path);
 }
 
-function recomputeCategoryTotals() {
-  if (!state.result) return;
-  for (const cat of state.result.categories)
-    cat.size = state.result.locations
-      .filter((l) => l.category === cat.id)
-      .reduce((s, l) => s + l.size, 0);
+/** Delete the selected locations, streaming progress. Each row disappears the
+ *  moment its deletion confirms; paths that fail (e.g. a file inside is in use)
+ *  stay listed and selected — marked — so they can be retried immediately. */
+async function doClean() {
+  if (state.cleaning) return; // ignore overlapping cleans
+  const res = state.result;
+  if (!res) return;
+  // largest-first: the biggest reclaims (and most visible progress) land first
+  const chosen = res.locations
+    .filter((l) => state.selected.has(l.path))
+    .sort((a, b) => b.size - a.size);
+  if (!chosen.length) return;
+  const paths = chosen.map((l) => l.path);
+  const toTrash = trashCb.checked;
+  const verb = toTrash ? "moved to Trash" : "deleted";
+
+  state.cleaning = true;
+  state.failed = new Map();
+  cleanBtn.disabled = true;
+  rescanBtn.disabled = true;
+  cachesBtn.disabled = true;
+  showCleanbar();
+
+  try {
+    await runClean(paths, toTrash, {
+      onRemoving(path, done, total) {
+        cleanProgress(path, done, total);
+      },
+      onRemoved(path, done, total) {
+        removeLocation(path);
+        cleanProgress(path, done, total);
+        scheduleRender(); // shrink the list live (coalesced to one repaint/frame)
+      },
+      onFailed(path, error, done, total) {
+        state.failed.set(path, error); // keep it listed + selected for retry
+        cleanProgress(path, done, total);
+        scheduleRender();
+      },
+      onDone() {},
+    });
+
+    hideScanbar();
+    res.categories = rollupCategories(res.locations); // drop emptied categories
+    render();
+    const removed = paths.length - state.failed.size;
+    toast(
+      state.failed.size === 0
+        ? `${removed} location${removed === 1 ? "" : "s"} ${verb}`
+        : `${removed} ${verb} · ${state.failed.size} couldn't be removed (in use?)`
+    );
+  } catch (err) {
+    hideScanbar();
+    render();
+    toast(`Clean failed: ${err}`);
+  } finally {
+    state.cleaning = false;
+    rescanBtn.disabled = false;
+    cachesBtn.disabled = false;
+    updateFooter(); // re-enables Clean if any (failed) rows are still selected
+  }
 }
 
 /* ───────────────────────── Navigation ────────────────────────── */
