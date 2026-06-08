@@ -47,6 +47,30 @@ pub struct RuleFile {
     pub junk: Vec<Junk>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub global_cache: Vec<GlobalCache>,
+    /// Tombstones: built-in ids the user removed. Only meaningful in an on-disk
+    /// override, where it suppresses the matching embedded entry on merge. The
+    /// editor's wire JSON omits it (always empty post-merge); `save_rules` derives
+    /// it by diffing the submitted set against the embedded base. See
+    /// `store::merge_over_embedded` / `store::delta_against_embedded`.
+    #[serde(default, skip_serializing_if = "Removed::is_empty")]
+    pub removed: Removed,
+}
+
+/// Built-in ids the user has removed, per section — see [`RuleFile::removed`].
+#[derive(Deserialize, Serialize, Clone, Default, PartialEq)]
+pub struct Removed {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rules: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub junk: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub global_cache: Vec<String>,
+}
+
+impl Removed {
+    fn is_empty(&self) -> bool {
+        self.rules.is_empty() && self.junk.is_empty() && self.global_cache.is_empty()
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone)]
@@ -79,7 +103,7 @@ impl Default for Defaults {
 // arrays / `None` notes / a false `reclaim_root` are skipped to keep the file clean.
 // NOTE: skipped fields are also absent from the JSON sent to the UI, so the
 // frontend normalizes them back (markers ?? [], note ?? null, …).
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct Rule {
     #[serde(default)]
     pub id: String,
@@ -107,7 +131,7 @@ pub struct Rule {
     pub note: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct Junk {
     #[serde(default)]
     pub id: String,
@@ -125,7 +149,7 @@ pub struct Junk {
     pub note: Option<String>,
 }
 
-#[derive(Deserialize, Serialize, Clone)]
+#[derive(Deserialize, Serialize, Clone, PartialEq)]
 pub struct GlobalCache {
     #[serde(default)]
     pub id: String,

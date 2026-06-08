@@ -416,14 +416,36 @@ user edits/additions/removals are preserved. User chose this (vs a "sync" button
 - **Self-healing:** the user's current full-copy override keeps working via merge; the
   first editor save compacts it to a tiny delta (just `make-objects=true`).
 
-## Plan (awaiting OK before touching persistence)
-- [ ] `rules/model.rs`: derive `PartialEq` on Rule/Junk/GlobalCache/Defaults; add
+## Plan / progress
+- [x] `rules/model.rs`: derive `PartialEq` on Rule/Junk/GlobalCache; add
   `Removed { rules, junk, global_cache: Vec<String> }` + `RuleFile.removed`
-- [ ] `rules/store.rs`: `merge_over_embedded()` (load) + `delta_against_embedded()`
-  (save) + tombstone derivation; wire into `load_matcher`/`load_rules`/`save_rules`;
-  update `rules_status` to count the merged set
-- [ ] Tests: new built-in surfaces for an override user; per-id edit wins; tombstone
-  suppresses a built-in; delta strips unmodified; user rule appended; full round-trip
-- [ ] Verify: cargo test + clippy -D warnings + tsc/build; re-run the real scan
-  against the user's tree to confirm no regression
+  (skip-empty, so omitted from the editor's wire JSON). No `schema_version` bump.
+- [x] `rules/store.rs`: `merge_over_embedded()` + `merge_section()` (load);
+  `delta_against_embedded()` + `delta_section()` (save); wired into
+  `load_matcher`/`load_rules`/`save_rules_to`; `rules_status` now counts the merged set
+- [x] Tests (+5): empty-delta on default save + merge-back; new built-in surfaces;
+  per-id edit wins; tombstone suppresses; delta keeps only changes + tombstones removed;
+  save→merge-load preserves a customization
+- [x] Verify: cargo test **30/30**, clippy -D warnings clean, tsc + vite build clean;
+  temp `#[ignore]`d real-data test confirmed the merge surfaces cmake-build for the
+  user's actual override (stripped to simulate the original) while keeping make-objects
+
+## Review
+- **Override is now a layer, not a replacement.** Load merges the override over the
+  embedded base by id (per section); save stores only the delta + a `[removed]`
+  tombstone list. New/updated built-ins flow through; user edits/additions/removals
+  persist. Frontend untouched (the editor still loads/edits/saves the full set; the
+  backend derives delta+tombstones by diffing against embedded).
+- **Deletion stays honest without a frontend change:** `save` derives tombstones as
+  the embedded ids absent from the submitted set; `load` drops them. A removed custom
+  rule (id not in embedded) simply isn't re-added.
+- **Self-healing:** an existing full-copy override keeps working via merge; the first
+  editor save compacts it to a tiny delta (proven: saving the unmodified default set
+  stores an empty delta that merges back to the full 66 rules).
+- **`PartialEq` powers the delta** (an entry is "unmodified" iff structurally equal to
+  its embedded twin). Order differences in markers/dirs/globs count as modified — a
+  harmless false-positive (keeps a rule that won't auto-update), never data loss.
+- **Files:** `src-tauri/src/rules/{model.rs, store.rs}`. No frontend, no schema bump.
+- **The user's immediate file** was already patched with cmake-build; the merge makes
+  that redundant going forward and will be compacted on their next editor save.
 
