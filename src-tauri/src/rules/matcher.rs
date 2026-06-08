@@ -19,6 +19,10 @@ pub(crate) struct CompiledRule {
     exact_markers: Vec<String>,
     /// Glob markers (e.g. `*.csproj`), checked against a dir's children.
     marker_glob_set: Option<GlobSet>,
+    /// Exact-name anti-markers: their presence suppresses the rule at that dir.
+    exact_anti_markers: Vec<String>,
+    /// Glob anti-markers, checked against a dir's children.
+    anti_marker_glob_set: Option<GlobSet>,
     /// The rule's candidate globs (matched recursively under the project root).
     pub(crate) glob_set: Option<GlobSet>,
     pub(crate) enabled: bool,
@@ -27,22 +31,37 @@ pub(crate) struct CompiledRule {
 impl CompiledRule {
     /// Is one of this rule's markers a direct child of `dir`?
     pub(crate) fn marker_in(&self, dir: &Path) -> bool {
-        for m in &self.exact_markers {
-            if dir.join(m).exists() {
-                return true;
-            }
+        dir_has_any(dir, &self.exact_markers, &self.marker_glob_set)
+    }
+
+    /// Is one of this rule's anti-markers a direct child of `dir`? When true the
+    /// rule must NOT treat `dir` as a root: a CMake build tree is reclaimed
+    /// wholesale, but a dir that *also* holds the source `CMakeLists.txt` is the
+    /// project root (an in-source build), so it's left to the per-file globs.
+    pub(crate) fn anti_marker_in(&self, dir: &Path) -> bool {
+        dir_has_any(dir, &self.exact_anti_markers, &self.anti_marker_glob_set)
+    }
+}
+
+/// True if `dir` directly contains a name in `exact`, or a child whose name
+/// matches `glob_set`. Shared by the marker and anti-marker checks; a single
+/// `read_dir` services the glob case.
+fn dir_has_any(dir: &Path, exact: &[String], glob_set: &Option<GlobSet>) -> bool {
+    for m in exact {
+        if dir.join(m).exists() {
+            return true;
         }
-        if let Some(set) = &self.marker_glob_set {
-            if let Ok(rd) = fs::read_dir(dir) {
-                for e in rd.flatten() {
-                    if set.is_match(Path::new(&e.file_name())) {
-                        return true;
-                    }
+    }
+    if let Some(set) = glob_set {
+        if let Ok(rd) = fs::read_dir(dir) {
+            for e in rd.flatten() {
+                if set.is_match(Path::new(&e.file_name())) {
+                    return true;
                 }
             }
         }
-        false
     }
+    false
 }
 
 pub(crate) struct CompiledJunk {
@@ -181,6 +200,15 @@ impl Matcher {
                     exact_markers.push(m.clone());
                 }
             }
+            let mut exact_anti_markers = Vec::new();
+            let mut glob_anti_markers = Vec::new();
+            for m in &r.anti_markers {
+                if is_glob(m) {
+                    glob_anti_markers.push(m.clone());
+                } else {
+                    exact_anti_markers.push(m.clone());
+                }
+            }
             // dir entries are claimed name-first during the walk
             for d in &r.dirs {
                 let segs = norm_segments(d);
@@ -204,6 +232,8 @@ impl Matcher {
                 ecosystem: r.ecosystem,
                 exact_markers,
                 marker_glob_set: build_globset(&glob_markers),
+                exact_anti_markers,
+                anti_marker_glob_set: build_globset(&glob_anti_markers),
                 glob_set: build_globset(&r.globs),
                 enabled: r.enabled,
             });

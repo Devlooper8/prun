@@ -60,6 +60,8 @@ export interface RuleDef {
   name: string;
   ecosystem: string;
   markers: string[];
+  /** negative markers: suppress this rule in a dir that contains any of them */
+  anti_markers: string[];
   dirs: string[];
   globs: string[];
   reclaim_root: boolean;

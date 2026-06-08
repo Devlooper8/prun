@@ -89,6 +89,12 @@ pub struct Rule {
     pub ecosystem: String,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub markers: Vec<String>,
+    /// Negative markers: if any is a direct child of a candidate dir, the rule is
+    /// suppressed there. Lets `reclaim_root` skip an in-source build — a dir that
+    /// holds both the build marker and the source one (e.g. CMakeCache.txt next to
+    /// CMakeLists.txt) — instead of reclaiming the whole source tree.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub anti_markers: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dirs: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

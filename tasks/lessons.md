@@ -83,3 +83,23 @@ lists all and never auto-selects). A "full editor" would naturally render a togg
 for it — a control that does nothing. Hid it instead (the value still round-trips).
 **Pattern:** before exposing a field in a GUI, check that toggling it actually does
 something; a no-op control is worse than an omitted one.
+
+## "Tests pass" ≠ "fixed on the user's machine" — find the active config layer
+I changed the embedded `prun-rules.toml`, added tests (25/25 green), and reported
+the cmake-build-dir fragmentation "fixed." The user re-scanned: still broken. Root
+cause — a **user override at `%APPDATA%\prun\rules.toml`** existed (created when they
+saved in the in-app editor) and `load_matcher()` prefers it *wholesale* over the
+embedded ruleset, so my embedded edit was dead code for them. My tests used
+`embedded()`, which never exercises the override path the real app takes.
+**What actually proved it:** locating the override on disk, confirming it lacked the
+rule, patching it, then running the *real* `scan_with(&load_matcher(), realPath)`
+against the user's actual tree (an `#[ignore]`d filesystem test) — output went from
+N fragments to 3 whole build dirs.
+**Patterns:**
+- When a config/default change "doesn't take effect," hunt for an override/cache
+  layer that shadows it (here: a full-copy override that also silently freezes the
+  user out of all future built-in updates — a real design smell to fix at the root).
+- Verify against the **runtime path the app actually uses** (`load_matcher` reading
+  the live override), not just a synthetic `embedded()` matcher.
+- For a user-reported visual bug, reproduce on *their* data/state before claiming
+  it's fixed; a green synthetic suite is necessary, not sufficient.

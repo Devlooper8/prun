@@ -342,6 +342,7 @@ function renderRuleForm(r: RuleDef): HTMLElement {
   wrap.appendChild(grid);
 
   wrap.appendChild(field("markers", stringList(r.markers, "+ marker (Cargo.toml, *.csproj…)", markDirty)));
+  wrap.appendChild(field("anti-markers", stringList(r.anti_markers, "+ anti-marker (skip dir if present, e.g. CMakeLists.txt)", markDirty)));
   wrap.appendChild(field("dirs", stringList(r.dirs, "+ dir (target, project/target…)", markDirty)));
   wrap.appendChild(field("globs", stringList(r.globs, "+ glob (*.o, __pycache__…)", markDirty)));
 
@@ -428,7 +429,7 @@ function renderDefaultsForm(d: RuleDefaults): HTMLElement {
 }
 
 /* ── add / delete ──────────────────────────────────────────────── */
-const blankRule = (): RuleDef => ({ id: "", name: "", ecosystem: "", markers: [], dirs: [], globs: [], reclaim_root: false, enabled: true, note: null });
+const blankRule = (): RuleDef => ({ id: "", name: "", ecosystem: "", markers: [], anti_markers: [], dirs: [], globs: [], reclaim_root: false, enabled: true, note: null });
 const blankJunk = (): JunkDef => ({ id: "", name: "", ecosystem: "junk", dirs: [], globs: [], enabled: true, note: null });
 const blankCache = (): CacheDef => ({ id: "", name: "", ecosystem: "", paths: [], platform: null, enabled: false, note: null });
 
@@ -466,7 +467,7 @@ function defaultDefaults(): RuleDefaults {
 function normalize(rf: RuleFile): RuleFile {
   rf.rule = (rf.rule ?? []).map((r) => ({
     ...r,
-    markers: r.markers ?? [], dirs: r.dirs ?? [], globs: r.globs ?? [],
+    markers: r.markers ?? [], anti_markers: r.anti_markers ?? [], dirs: r.dirs ?? [], globs: r.globs ?? [],
     reclaim_root: r.reclaim_root ?? false, enabled: r.enabled ?? true, note: r.note ?? null,
   }));
   rf.junk = (rf.junk ?? []).map((j) => ({
@@ -630,10 +631,10 @@ function sampleRuleFile(): RuleFile {
     schema_version: 3,
     defaults: defaultDefaults(),
     rule: [
-      { id: "rust-cargo", name: "Rust (Cargo)", ecosystem: "rust", markers: ["Cargo.toml"], dirs: ["target"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "node-modules", name: "Node.js (dependencies)", ecosystem: "node", markers: ["package.json"], dirs: ["node_modules"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "vite", name: "Vite", ecosystem: "node", markers: ["vite.config.ts"], dirs: ["dist", ".vite"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "python-venv", name: "Python virtualenv", ecosystem: "python", markers: ["pyvenv.cfg"], dirs: [], globs: [], reclaim_root: true, enabled: true, note: "Any dir containing pyvenv.cfg." },
+      { id: "rust-cargo", name: "Rust (Cargo)", ecosystem: "rust", markers: ["Cargo.toml"], anti_markers: [], dirs: ["target"], globs: [], reclaim_root: false, enabled: true, note: null },
+      { id: "node-modules", name: "Node.js (dependencies)", ecosystem: "node", markers: ["package.json"], anti_markers: [], dirs: ["node_modules"], globs: [], reclaim_root: false, enabled: true, note: null },
+      { id: "vite", name: "Vite", ecosystem: "node", markers: ["vite.config.ts"], anti_markers: [], dirs: ["dist", ".vite"], globs: [], reclaim_root: false, enabled: true, note: null },
+      { id: "python-venv", name: "Python virtualenv", ecosystem: "python", markers: ["pyvenv.cfg"], anti_markers: [], dirs: [], globs: [], reclaim_root: true, enabled: true, note: "Any dir containing pyvenv.cfg." },
     ],
     junk: [
       { id: "os-cruft", name: "OS metadata", ecosystem: "junk", dirs: [], globs: [".DS_Store", "Thumbs.db"], enabled: true, note: null },

@@ -246,10 +246,12 @@ fn visit(
             push_cand(sink, path, &m.junk[ji].ecosystem, m.rules.len() + ji, true);
             return WalkState::Skip;
         }
-        // 4. reclaim_root: the dir holding the marker IS the artifact
+        // 4. reclaim_root: the dir holding the marker IS the artifact — unless an
+        //    anti-marker says it's really a source root (an in-source build, where
+        //    CMakeCache.txt sits next to the source CMakeLists.txt).
         for ri in &m.reclaim_rules {
             let rule = &m.rules[*ri];
-            if rule.enabled && rule.marker_in(path) {
+            if rule.enabled && rule.marker_in(path) && !rule.anti_marker_in(path) {
                 push_cand(sink, path, &rule.ecosystem, *ri, true);
                 return WalkState::Skip;
             }
@@ -553,6 +555,67 @@ mod tests {
         assert_eq!(arts.len(), 1);
         assert_eq!(arts[0].1, "python");
         assert!(arts[0].0.ends_with("not-named-venv"));
+    }
+
+    /// A CMake build tree is identified by the `CMakeCache.txt` it holds, so an
+    /// out-of-source build dir is reclaimed WHOLE regardless of its name — instead
+    /// of fragmenting into CMakeFiles/, CMakeCache.txt and build.ninja listed
+    /// separately (the bug the cmake-build reclaim rule fixes).
+    #[test]
+    fn cmake_build_tree_reclaimed_whole_by_marker() {
+        let root = fresh_tmp("cmakebuild");
+        let proj = root.join("proj");
+        mkdir(&proj);
+        touch(&proj.join("CMakeLists.txt")); // source root (out-of-source layout)
+        // an arbitrarily-named build dir, NOT in the cmake `dirs` list
+        let bd = proj.join("cmake-build-minsizerel-system");
+        touch(&bd.join("CMakeCache.txt"));
+        touch(&bd.join("build.ninja"));
+        touch(&bd.join("CMakeFiles").join("x.stamp"));
+
+        let arts = run(&embedded(), &root);
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(
+            arts.iter().any(|(a, c)| a == "/cmake-build-minsizerel-system" && c == "cpp"),
+            "the whole build tree should be one cpp entry; got {arts:?}"
+        );
+        assert!(
+            !arts
+                .iter()
+                .any(|(a, _)| a.contains("CMakeCache") || a.contains("CMakeFiles") || a.contains("ninja")),
+            "build-tree contents must not be listed separately; got {arts:?}"
+        );
+    }
+
+    /// In-source build: `CMakeCache.txt` sits next to the source `CMakeLists.txt`.
+    /// The anti-marker must stop `reclaim_root` from grabbing the whole source
+    /// tree; the loose generated files are still caught by the cmake globs.
+    #[test]
+    fn cmake_in_source_build_not_reclaimed_wholesale() {
+        let root = fresh_tmp("cmakeinsrc");
+        let proj = root.join("proj");
+        mkdir(&proj);
+        touch(&proj.join("CMakeLists.txt")); // source
+        touch(&proj.join("main.cpp")); // source
+        touch(&proj.join("CMakeCache.txt")); // generated, in-source
+        touch(&proj.join("CMakeFiles").join("x.stamp"));
+
+        let arts = run(&embedded(), &root);
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(
+            !arts.iter().any(|(a, _)| a == "/proj"),
+            "the in-source source root must NOT be reclaimed wholesale; got {arts:?}"
+        );
+        assert!(
+            arts.iter().any(|(a, c)| a == "/CMakeCache.txt" && c == "cpp"),
+            "loose in-source CMakeCache.txt should still be caught by globs; got {arts:?}"
+        );
+        assert!(
+            arts.iter().any(|(a, c)| a == "/CMakeFiles" && c == "cpp"),
+            "loose in-source CMakeFiles should still be caught by globs; got {arts:?}"
+        );
     }
 
     #[test]

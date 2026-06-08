@@ -179,6 +179,7 @@ fn validate_rules(rf: &RuleFile) -> Result<(), String> {
             return Err(format!("rule \"{}\" has an empty ecosystem", r.id));
         }
         check_globs(&r.id, &r.markers)?;
+        check_globs(&r.id, &r.anti_markers)?;
         check_globs(&r.id, &r.globs)?;
     }
     for j in &rf.junk {

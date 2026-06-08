@@ -73,6 +73,15 @@ globs     = ["CMakeFiles", "CMakeCache.txt", "cmake_install.cmake", "CTestTestfi
 note      = "The globs catch in-source configures, where artifacts land next to source instead of in build/. None of them are ever committed legitimately."
 
 [[rule]]
+id           = "cmake-build"
+name         = "C/C++ (CMake build tree)"
+ecosystem    = "cpp"
+markers      = ["CMakeCache.txt"]
+anti_markers = ["CMakeLists.txt"]
+reclaim_root = true
+note         = "A CMake build tree is ANY directory holding a generated CMakeCache.txt, whatever it's named (cmake-build-debug, cmake-build-minsizerel-system, out/, an arbitrary CLion suffix, …). This reclaims the whole directory as one entry instead of fragmenting it into CMakeFiles/, CMakeCache.txt and build.ninja listed separately. anti_markers guards the in-source case: a directory that ALSO holds the source CMakeLists.txt is your project root, not a build tree, so it's left alone here — its loose artifacts are caught file-by-file by the cmake rule's globs above."
+
+[[rule]]
 id        = "meson"
 name      = "C/C++ (Meson)"
 ecosystem = "cpp"

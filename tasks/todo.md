@@ -309,3 +309,121 @@ full build/clippy clean.
 - **On a branch:** `refactor/backend-modules` (6 refactor + 3 fix commits),
   left for review/merge.
 
+---
+
+# Todo — CMake build trees: reclaim the whole dir by marker (anti-marker guard)
+
+## Problem
+"Largest reclaimable locations" fragmented CMake build dirs. `cmake-build-debug` (an
+exact `dirs` name) listed as one clean entry, but arbitrarily-named build dirs
+(`cmake-build-debug-visual-studio`, `cmake-build-minsizerel-system`,
+`cmake-build-docker-build-arm`, …) matched NO exact name, so the `cmake` rule's
+`globs` (CMakeFiles, CMakeCache.txt, build.ninja, .ninja_deps) caught their
+*contents* individually → many rows for one disposable dir. Extending the `dirs`
+list / globbing `cmake-build-*` is a losing game (build dirs can be named anything).
+
+## Fix (user-approved: anti-marker guard)
+Identify a build tree by what's INSIDE it, not its name — exactly the `python-venv`
+pattern. New `reclaim_root` rule keyed on `CMakeCache.txt` (CMake writes it at every
+build-tree root, every generator, never committed) → reclaims the whole dir whatever
+its name. Guarded by a new `anti_markers` field: suppress reclaim when the source
+`CMakeLists.txt` is also present (in-source build → leave the source tree alone; its
+loose artifacts stay handled by the existing globs, exactly as before).
+
+## Changes
+- [x] `rules/model.rs`: `Rule.anti_markers: Vec<String>` (serde default + skip-empty)
+- [x] `rules/matcher.rs`: compile anti-markers (exact/glob split); `anti_marker_in()`;
+  refactored a shared `dir_has_any()` behind `marker_in`/`anti_marker_in`
+- [x] `scan/project.rs`: reclaim step gated `marker_in(p) && !anti_marker_in(p)`; +2 tests
+- [x] `rules/store.rs`: `validate_rules` also glob-checks `anti_markers`
+- [x] `prun-rules.toml`: new `cmake-build` rule (`markers=["CMakeCache.txt"]`,
+  `anti_markers=["CMakeLists.txt"]`, `reclaim_root=true`)
+- [x] `types.ts` + `rules-editor.ts`: `anti_markers` made first-class in the editor
+  (interface, normalize, blankRule, preview sample, anti-markers chip-list field)
+- [x] Verify: `cargo test` **25/25** (+2), `clippy -D warnings` clean, `tsc --noEmit` 0,
+  `npm run build` 0
+
+## Review
+- **Why marker-based, not name-based:** the screenshot's fragmented dirs all share
+  one trait — a `CMakeCache.txt` at their root. Keying on it collapses every one to a
+  single entry regardless of name; the existing ancestor-subsumption (`has_ancestor_in`)
+  + glob_walk pruning drop everything beneath the now-claimed build dir for free.
+- **Safety:** `anti_markers` makes the in-source case behave EXACTLY as before (globs
+  catch loose files; the source root is never reclaimed). No `schema_version` bump —
+  the field is additive/optional, old override files parse unchanged.
+- **Precedence unchanged:** for `build/` / `cmake-build-debug` (already in `dirs`), the
+  name rule (visit step 1) still fires before reclaim (step 4), so those cases stay
+  byte-identical; only previously-unmatched build dirs change. (Verified: the existing
+  `scans_a_realistic_projects_tree` test, which has an out-of-source `build/`, still passes.)
+- **Bonus:** an orphaned build dir (source deleted, parent has no CMakeLists.txt) is
+  now caught too — the old `dirs` rule needed the parent marker to fire.
+- **Files:** `src-tauri/src/rules/{model,matcher,store}.rs`,
+  `src-tauri/src/scan/project.rs`, `src-tauri/prun-rules.toml`,
+  `src/{types.ts, rules-editor.ts}`.
+- **Not headless-verifiable:** the editor's new anti-markers chip-list needs a
+  click-through; tests + build cover the detection logic + round-trip.
+
+## Follow-up — the embedded fix didn't reach the user (override shadowing)
+- After the above, the user re-scanned and the fragmentation persisted. Root cause:
+  a **user override at `%APPDATA%\prun\rules.toml`** (saved 06-04 via the in-app
+  editor) which `load_matcher()` prefers *wholesale* over the embedded ruleset — so
+  the embedded `cmake-build` rule was never loaded. The override also carried a real
+  customization (`make-objects` enabled), so "Reset to defaults" wasn't acceptable.
+- [x] Patched the override in place: inserted the `cmake-build` rule after `cmake`
+  (additive; `make-objects` and all else preserved). Validated it parses (66 rules,
+  cmake-build present, make-objects still enabled).
+- [x] **Proved end-to-end** with a temporary `#[ignore]`d test running the real
+  `scan_with(&load_matcher(), …)` against the user's actual tree
+  `D:\Kingston\pracovna plocha\projects\CLionProjects\untitled1`: output went from
+  many fragments to exactly **3 whole build dirs** (`cmake-build-debug`,
+  `cmake-build-debug-system`, `cmake-build-minsizerel-system`), zero
+  CMakeFiles/CMakeCache.txt/build.ninja/.ninja_deps. Temp test then removed; suite
+  back to **25/25**.
+- **Open design issue (root cause):** the full-copy override model means anyone who
+  has saved an override silently never receives built-in rule updates. Worth fixing
+  properly — e.g. layer the override over the embedded base by id (override/disable
+  wins per-id, new built-ins appear automatically), or store only a delta. Flagged
+  to the user; not yet implemented. See lessons.md "Tests pass ≠ fixed".
+
+---
+
+# Todo — Override: merge built-ins by id (stop shadowing built-in updates)
+
+## Goal
+The override is a full copy that REPLACES the built-ins, so saving one freezes the
+user out of all future built-in rule updates (the cmake-build bug). Make the override
+a LAYER over the embedded base instead, so new/updated built-ins flow through while
+user edits/additions/removals are preserved. User chose this (vs a "sync" button).
+
+## Design (backend-only; frontend untouched)
+- **Load** (`load_matcher` for scans, `load_rules` for editor): embedded is the base;
+  per section (rule/junk/global_cache) an override entry with a matching `id` replaces
+  the embedded one (at the embedded position, preserving precedence); embedded ids the
+  override doesn't mention come through fresh; new built-ins appear automatically;
+  override-only ids (user rules) are appended; tombstoned ids are dropped.
+- **Save** (`save_rules`): validate the submitted full model, then write only the
+  DELTA — entries that are new or differ from the embedded entry of the same id —
+  plus a per-section `removed` tombstone list = embedded ids absent from the
+  submission (i.e. the user deleted them). Unmodified built-ins are omitted so their
+  future fixes flow.
+- **Deletion truthful, no frontend change:** the editor keeps loading the full merged
+  set and saving the whole thing; the backend derives the tombstones by diffing the
+  submission against embedded. Removing a built-in → tombstone (stays gone, re-appears
+  only if you clear it by re-adding); removing a custom rule → just dropped.
+- **`removed` tombstone** lives on `RuleFile` but `skip_serializing_if = empty`, so the
+  editor's JSON never carries it (always empty on the wire) — only the on-disk override
+  holds it when non-empty.
+- **Self-healing:** the user's current full-copy override keeps working via merge; the
+  first editor save compacts it to a tiny delta (just `make-objects=true`).
+
+## Plan (awaiting OK before touching persistence)
+- [ ] `rules/model.rs`: derive `PartialEq` on Rule/Junk/GlobalCache/Defaults; add
+  `Removed { rules, junk, global_cache: Vec<String> }` + `RuleFile.removed`
+- [ ] `rules/store.rs`: `merge_over_embedded()` (load) + `delta_against_embedded()`
+  (save) + tombstone derivation; wire into `load_matcher`/`load_rules`/`save_rules`;
+  update `rules_status` to count the merged set
+- [ ] Tests: new built-in surfaces for an override user; per-id edit wins; tombstone
+  suppresses a built-in; delta strips unmodified; user rule appended; full round-trip
+- [ ] Verify: cargo test + clippy -D warnings + tsc/build; re-run the real scan
+  against the user's tree to confirm no regression
+
