@@ -10,9 +10,11 @@ largest reclaimable locations, and a footer with the running total.
 
 ## Stack
 
-- **Frontend** — Vanilla TypeScript + Vite. No framework; the whole UI is
-  ~250 lines in `src/main.ts` plus `src/styles.css`.
-- **Backend** — Rust (`src-tauri/`). Real disk scanner, not a mock.
+- **Frontend** — Vanilla TypeScript + Vite. No framework; `src/main.ts` for the
+  UI, with pure logic split into `src/format.ts` / `src/grouping.ts` (unit-tested
+  with Vitest) plus `src/rules-editor.ts` and `src/styles.css`.
+- **Backend** — Rust (`src-tauri/`). Real disk scanner, not a mock, split into
+  focused modules (`scan/`, `clean`, `rules/`, `fs_util`, `commands`, `cli`).
 
 ## Run
 
@@ -37,7 +39,24 @@ You can also preview the UI in a plain browser — `npm run dev` then open the
 Vite URL. Without the Tauri shell it falls back to sample data (the same set
 shown in the mock) so layout and interactions stay explorable.
 
-## How the scanner works (`src-tauri/src/scanner.rs`)
+## Command-line use
+
+The same scan/clean/rules core is exposed as a headless CLI (handy for scripting
+or CI cache cleanup). Any subcommand runs the CLI; with no arguments the desktop
+app launches instead.
+
+```bash
+prun scan [PATH] [--all] [--min-age DAYS] [--json]   # list reclaimable artifacts
+prun caches [--json]                                 # per-user system caches
+prun rules [--json]                                  # active ruleset status
+prun clean PATH... [--delete]                        # Trash (or permanently delete)
+```
+
+(During development: `cargo run --manifest-path src-tauri/Cargo.toml -- scan ~/Projects`.
+On Windows *release* builds the binary is GUI-subsystem, so CLI output won't
+attach to a console there — use a dev build for piped output.)
+
+## How the scanner works (`src-tauri/src/scan/`)
 
 1. Walks the root with `walkdir`, skipping `.git` and never descending into a
    matched artifact dir.
@@ -68,15 +87,26 @@ when the footer checkbox is unticked.
 
 ## Notes / tradeoffs
 
-- `age_secs` uses the directory's own mtime, not a deep max over its contents —
-  cheap and good enough for "stale build dir" detection. Swap to a recursive
-  max if you want stricter "untouched" semantics.
-- Size walking is sequential. For very large trees, parallelising `dir_size`
-  with `rayon` or switching to `jwalk` is the obvious win.
+- `age_secs` uses the newest mtime found while sizing the tree (one walk), so
+  "untouched for N days" reflects the most recent file change rather than the top
+  directory's often-stale mtime.
+- Sizing runs in parallel across locations (`rayon`); each tree is measured in a
+  single walk that also yields the newest mtime and a count of unreadable entries.
+  Reported sizes are *apparent* (sum of file lengths, hard links counted once on
+  Unix), not on-disk allocation — close enough for "how much will I get back".
 - `git2` is pulled with `default-features = false`; it'll vendor libgit2. If
   you'd rather link the system libgit2, enable the `vendored-libgit2` feature
   accordingly.
 
-The frontend was typechecked and built clean in CI; the Rust crate compiles
-with the standard Tauri toolchain (it wasn't linked in the authoring sandbox,
-which lacked the webkit system libs).
+## Development
+
+```bash
+cargo test --manifest-path src-tauri/Cargo.toml   # backend unit tests
+npm test                                          # frontend (Vitest)
+npm run build                                     # tsc --noEmit + vite build
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+```
+
+CI (`.github/workflows/ci.yml`) runs all of the above on Linux and Windows, plus
+`cargo fmt --check` and an advisory `npm`/`cargo audit`. See `CHANGELOG.md` for
+release history and `RELEASING.md` for the signing/auto-update release process.

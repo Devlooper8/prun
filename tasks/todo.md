@@ -419,11 +419,12 @@ the junior-readable simplicity. Branch: `feat/enterprise-grade-tier0-3`.
 - [x] Split `main.ts` pure logic into `format.ts` / `grouping.ts` (done in Tier 1)
 - Verify: cargo test **34/34** (+3), clippy clean, fmt --check clean, vitest 15/15, tsc + vite build clean
 
-## Tier 3 — Distribution groundwork
-- [ ] Headless `prun` CLI over the pure core (scan/clean/rules) — bonus test surface
-- [ ] `tauri-plugin-updater` wired + signed-update scaffolding (keys are user-supplied)
-- [ ] Code-signing CI scaffolding (Win + macOS; certs are user secrets) + docs
-- [ ] CHANGELOG.md + SemVer discipline; bump to a real version
+## Tier 3 — Distribution groundwork ✅
+- [x] Headless `prun` CLI over the pure core (scan/caches/rules/clean, text + --json); 5 tests; verified live (version/rules/help/scan)
+- [x] `tauri-plugin-updater` wired (dep + plugin init, compile-verified); endpoint/keypair documented in RELEASING.md
+- [x] Release workflow (`release.yml`, tauri-action, tag-triggered, draft release) + RELEASING.md (Win Authenticode, macOS Developer ID + notarization, updater keypair, secret table)
+- [x] CHANGELOG.md (Keep a Changelog) + bump to **0.2.0** (Cargo.toml / package.json / tauri.conf.json); README refreshed (stale scanner.rs ref, CLI + Development sections)
+- Verify: cargo test **39/39**, clippy + fmt clean, vitest 15/15, tsc + vite build clean; updater plugin compiles; CI/release YAML parse-checked
 
 ## Constraints (keep the simplicity)
 - No frontend framework; no single-impl `Scanner`/`RuleSource` traits (seams already test fine)

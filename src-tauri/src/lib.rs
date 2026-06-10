@@ -53,6 +53,9 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // Auto-update support. Inert until an updater endpoint + signing pubkey are
+        // configured (see RELEASING.md); wiring it now keeps that a config-only step.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         // Tracks what the last scan offered, so `clean` can only delete vetted paths.
         .manage(commands::Reclaimable::default())
         // Shared cancel flag so the UI can stop a long-running scan.
