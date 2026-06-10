@@ -404,11 +404,12 @@ the junior-readable simplicity. Branch: `feat/enterprise-grade-tier0-3`.
 - [x] LICENSE (MIT) + `license` field in Cargo.toml / package.json
 - Verify: cargo test **31/31**, clippy -D warnings clean, tsc + vite build clean
 
-## Tier 1 — Engineering infrastructure
-- [ ] GitHub Actions CI: cargo fmt/clippy/test + tsc + vite build, on push/PR
-- [ ] `cargo audit` + `npm audit` job in CI
-- [ ] `tracing` + rotating file log in OS data dir; replace the lone `eprintln!`
-- [ ] Vitest on the pure frontend logic (format/grouping/rollup)
+## Tier 1 — Engineering infrastructure ✅
+- [x] GitHub Actions CI: fmt/clippy/test (ubuntu + windows) + tsc + vite build + vitest, on push/PR
+- [x] `cargo audit` + `npm audit` advisory job in CI; `.github/dependabot.yml` (cargo/npm/actions)
+- [x] `tracing` + daily-rotated file log (7-file cap) in OS data dir; replaced the lone `eprintln!`
+- [x] Vitest: 15 tests over the extracted pure logic (format/grouping/rollup/filter)
+- Verify: cargo test **31/31**, clippy clean, fmt --check clean, vitest 15/15, tsc + vite build clean; CI/dependabot YAML parse-checked
 
 ## Tier 2 — Correctness & robustness
 - [ ] Scan cancellation: AtomicBool in managed state + `cancel_scan` command; walk + sizing check it
