@@ -6,10 +6,17 @@ import {
   type CleanEvent,
   type Location,
   type Category,
-  type CategoryId,
   categoryColor,
-  categoryLabel,
 } from "./types";
+import { fmtSize, esc, shortPath } from "./format";
+import {
+  type ProjectGroup,
+  subPathOf,
+  distinctCategories,
+  rollupCategories,
+  groupByProject,
+  filterLocations,
+} from "./grouping";
 import { enterRulesView } from "./rules-editor";
 
 /* ───────────────────────── Tauri bridge ─────────────────────────
@@ -214,95 +221,16 @@ const viewRules = $<HTMLElement>("#view-rules");
 /* ───────────────────────── Helpers ───────────────────────────── */
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function fmtSize(bytes: number): string {
-  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
-  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
-  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
-  return `${bytes} B`;
-}
-
+/** Locations passing the current category/age/git filters (biggest first). Thin
+ *  wrapper that feeds the global filter state into the pure `filterLocations`. */
 function visibleLocations(): Location[] {
   if (!state.result) return [];
-  return state.result.locations
-    .filter((loc) => {
-      if (state.catsOn.size && !state.catsOn.has(loc.category)) return false;
-      if (state.filters.age && loc.age_secs < state.ageDays * 86400) return false;
-      if (state.filters.git && !loc.git_ignored) return false;
-      return true;
-    })
-    .sort((a, b) => b.size - a.size); // biggest first; results stream in unsorted
-}
-
-/** Build the category roll-up from current locations — live, as a scan streams. */
-function rollupCategories(locations: Location[]): Category[] {
-  const totals = new Map<CategoryId, number>();
-  for (const l of locations)
-    totals.set(l.category, (totals.get(l.category) ?? 0) + l.size);
-  return [...totals]
-    .map(([id, size]) => ({ id, label: categoryLabel(id), size }))
-    .sort((a, b) => b.size - a.size);
-}
-
-const escMap: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
-const esc = (s: string) => s.replace(/[&<>"]/g, (c) => escMap[c]);
-
-/* ── Project grouping ───────────────────────────────────────────── */
-interface ProjectGroup {
-  name: string; // top-level folder under the scan root
-  locations: Location[];
-  size: number;
-}
-
-/** Path with the scan root stripped and leading separators removed. */
-function relUnderRoot(path: string, root: string): string {
-  const rel = path.startsWith(root) ? path.slice(root.length) : path;
-  return rel.replace(/^[\\/]+/, "");
-}
-
-/** Grouping key: the project = first folder under the scan root.
- *  e.g. <root>/prun/src-tauri/target  →  "prun" (not "src-tauri"). */
-function projectKeyOf(path: string, root: string): string {
-  const rel = relUnderRoot(path, root);
-  return rel.split(/[\\/]/)[0] || rel || path;
-}
-
-/** The artifact's location within its project, e.g. "src-tauri/target". */
-function subPathOf(path: string, root: string): string {
-  const parts = relUnderRoot(path, root).split(/[\\/]/);
-  return parts.slice(1).join("/") || parts[0] || path;
-}
-
-/** Distinct categories present in a set of locations, biggest-footprint first. */
-function distinctCategories(locs: Location[]): CategoryId[] {
-  const size = new Map<CategoryId, number>();
-  for (const l of locs) size.set(l.category, (size.get(l.category) ?? 0) + l.size);
-  return [...size].sort((a, b) => b[1] - a[1]).map(([c]) => c);
-}
-
-/** Grouping key: the project folder for a normal scan, or the cache name in the
- *  system-caches view (cache paths are absolute, so the project segment is the
- *  meaningful label there). */
-function groupKey(loc: Location, root: string): string {
-  if (state.mode === "caches") return loc.project || loc.category;
-  return projectKeyOf(loc.path, root);
-}
-
-/** Roll the (already filtered) locations up into project groups, biggest first. */
-function groupByProject(locations: Location[], root: string): ProjectGroup[] {
-  const groups = new Map<string, Location[]>();
-  for (const loc of locations) {
-    const key = groupKey(loc, root);
-    let bucket = groups.get(key);
-    if (!bucket) groups.set(key, (bucket = []));
-    bucket.push(loc);
-  }
-  return [...groups]
-    .map(([name, locs]) => ({
-      name,
-      locations: locs.sort((a, b) => b.size - a.size),
-      size: locs.reduce((s, l) => s + l.size, 0),
-    }))
-    .sort((a, b) => b.size - a.size);
+  return filterLocations(state.result.locations, {
+    catsOn: state.catsOn,
+    ageFilter: state.filters.age,
+    ageDays: state.ageDays,
+    gitFilter: state.filters.git,
+  });
 }
 
 /* ── progress strip ─────────────────────────────────────────────── *
@@ -343,11 +271,6 @@ function showCleanbar() {
   scanRoot.textContent = "Cleaning…";
   scanFill.style.width = "0%";
   scanPct.textContent = "0%";
-}
-/** Last two segments of a path, e.g. "space-sim/target" — the meaningful tail. */
-function shortPath(path: string): string {
-  const parts = path.split(/[\\/]+/).filter(Boolean);
-  return parts.slice(-2).join("/") || path;
 }
 function cleanProgress(path: string, done: number, total: number) {
   scanRoot.textContent = `Cleaning… ${shortPath(path)}`;
@@ -396,7 +319,7 @@ function render() {
   }
 
   // locations — grouped by project (top-level folder under the scan root)
-  const groups = groupByProject(visibleLocations(), res.root);
+  const groups = groupByProject(visibleLocations(), res.root, state.mode);
   locsList.innerHTML = "";
   for (const g of groups) locsList.appendChild(renderGroup(g, res.root));
 

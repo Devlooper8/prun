@@ -1,0 +1,26 @@
+/* Pure, DOM-free formatting helpers. Kept separate from main.ts so they can be
+ * unit-tested without a browser environment. */
+
+/** Human-readable byte size, e.g. 1500000 → "2 MB", 6.6e9 → "6.6 GB". */
+export function fmtSize(bytes: number): string {
+  if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(1)} GB`;
+  if (bytes >= 1e6) return `${(bytes / 1e6).toFixed(0)} MB`;
+  if (bytes >= 1e3) return `${(bytes / 1e3).toFixed(0)} KB`;
+  return `${bytes} B`;
+}
+
+const escMap: Record<string, string> = {
+  "&": "&amp;",
+  "<": "&lt;",
+  ">": "&gt;",
+  '"': "&quot;",
+};
+
+/** Escape a string for safe interpolation into innerHTML. */
+export const esc = (s: string) => s.replace(/[&<>"]/g, (c) => escMap[c]);
+
+/** Last two segments of a path, e.g. "space-sim/target" — the meaningful tail. */
+export function shortPath(path: string): string {
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return parts.slice(-2).join("/") || path;
+}

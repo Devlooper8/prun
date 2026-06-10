@@ -30,6 +30,9 @@ globset = "0.4"
 toml = "0.8"
 open = "5"
 atomicwrites = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 [profile.release]
 codegen-units = 1

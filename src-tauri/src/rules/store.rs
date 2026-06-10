@@ -32,8 +32,9 @@ pub(crate) fn load_matcher() -> Matcher {
         if let Ok(text) = fs::read_to_string(&path) {
             match toml::from_str::<RuleFile>(&text) {
                 Ok(rf) => return Matcher::compile(merge_over_embedded(rf)),
-                Err(e) => eprintln!(
-                    "prun: override rules.toml failed to parse ({e}); using embedded ruleset"
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "override rules.toml failed to parse; falling back to the embedded ruleset"
                 ),
             }
         }
