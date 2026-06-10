@@ -103,3 +103,27 @@ N fragments to 3 whole build dirs.
   the live override), not just a synthetic `embedded()` matcher.
 - For a user-reported visual bug, reproduce on *their* data/state before claiming
   it's fixed; a green synthetic suite is necessary, not sufficient.
+
+## The security boundary belongs at the IPC edge, not in the pure core
+Confining `clean` to scanned paths went into the Tauri *command* layer
+(`Reclaimable` managed state), not the pure `clean()` function. That keeps the
+core reusable (the new CLI calls the same `clean()`) and unit-testable, while the
+trust check sits exactly where untrusted input (the webview/IPC) arrives.
+**Pattern:** authorize at the boundary where untrusted input enters; keep domain
+functions pure so multiple front-ends (GUI, CLI) can reuse them without inheriting
+one front-end's threat model.
+
+## PowerShell here-strings break commit messages with quotes/`::`/`·`
+`git commit -m @'...'@` with double-quotes or special chars inside silently
+word-split and git received stray pathspecs (commit never happened). **Fix:** write
+the message to a temp file and `git commit -F file`, then delete it. Reliable for
+any multi-line/special-char message on Windows PowerShell.
+
+## rustfmt vs a deliberate compact style — decide once, enforce in CI
+The author hand-wrote single-line enum struct-variants; rustfmt expands them, and
+there's no stable option to keep them inline. For "enterprise grade" I chose to
+`cargo fmt` the whole tree in one standalone commit so `fmt --check` can gate CI,
+rather than leave formatting advisory. **Pattern:** enforced formatting removes
+bikeshedding and is the enterprise norm; apply it as an isolated, clearly-labeled
+commit so it never obscures behavior changes — and one trailing-comment-after-a-
+statement reflows oddly, so prefer comments on their own line.

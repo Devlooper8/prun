@@ -432,8 +432,51 @@ the junior-readable simplicity. Branch: `feat/enterprise-grade-tier0-3`.
 - Public `#[command]` surface stays compatible; behavior changes only where listed
 - Each tier: `cargo test` + `clippy -D warnings` + `tsc` + `vite build` green before commit
 
-## Progress / Review
-(filled in as each tier lands)
+## Review
+
+All four tiers landed on `feat/enterprise-grade-tier0-3` as 7 commits, each
+verified green before the next. Final state: **cargo test 39/39** (was 30),
+**clippy -D warnings clean**, **cargo fmt --check clean**, **vitest 15/15** (new),
+**tsc + vite build clean**. CLI verified live (`version`/`rules`/`help`/`scan`).
+
+**Commits**
+- `9a78879` Tier 0 — security & legal
+- `d6a6325` Tier 1 — frontend split + Vitest + tracing
+- `537353e` rustfmt the tree (so CI can gate `fmt --check`)
+- `d66447f` Tier 1 — CI + Dependabot
+- `1c44bee` Tier 2 — honest sizing, read-error reporting, cancellation
+- `0b96124` Tier 3 — headless CLI
+- `fcde152` Tier 3 — updater wiring, release pipeline, CHANGELOG + 0.2.0
+
+**Key decisions**
+- **`clean` confinement** lives at the IPC edge (`Reclaimable` managed state), not
+  in the pure `clean` fn — keeps the core reusable (the CLI reuses it) and unit-
+  testable while still neutralizing the XSS→delete escalation.
+- **Age moved post-sizing.** Honest "newest mtime" needs the same walk as sizing,
+  so the age gate runs after `measure_tree`. Too-fresh dirs are still walked (the
+  progress bar completes) but not offered. Documented perf trade-off.
+- **rustfmt the tree** (one standalone commit) rather than leave CI fmt advisory —
+  enforced formatting is the enterprise norm; the author's compact enum style was
+  expanded but stays readable.
+- **Updater is wired but inert.** The plugin compiles and is initialized; the
+  endpoint + signing key are config/secrets (RELEASING.md) so we didn't commit a
+  throwaway key or risk an unverifiable bundle config.
+- **Honored the simplicity constraints**: no framework, no single-impl
+  `Scanner`/`RuleSource` traits, no async runtime for the blocking walk; public
+  `#[command]` surface stayed compatible (frontend untouched except additive
+  cancel + error wiring).
+
+**Couldn't fully verify here** (need a real environment / secrets):
+- Full `tauri build` bundle (huge + network); the updater config block is
+  therefore documented, not committed.
+- Code signing / notarization (requires the user's certs) — scaffolded in CI + docs.
+- The GUI interactions (cancel button click, CSP at runtime, unreadable-count
+  toast) — covered by build + unit tests + the browser preview, but a click-through
+  on the desktop app is the honest final check.
+
+**Follow-ups not in scope** (flagged for later): `Mutex<Vec>` discovery hot-path
+contention (§3.6 of the analysis); CLI `clean` is explicit-paths-only by design;
+README "your-org" placeholders in CHANGELOG compare links.
 
 ---
 
