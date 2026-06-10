@@ -281,6 +281,15 @@ body {
   flex: 0 0 auto;
   color: var(--txt-faint); font-size: 12px; font-variant-numeric: tabular-nums;
 }
+.scanbar__cancel {
+  flex: 0 0 auto;
+  padding: 2px 10px; border-radius: 6px;
+  border: 1px solid var(--line); background: transparent;
+  color: var(--txt-dim); font-size: 12px; cursor: pointer;
+}
+.scanbar__cancel:hover { color: var(--txt); border-color: var(--txt-faint); }
+.scanbar__cancel:disabled { opacity: .55; cursor: default; }
+.scanbar__cancel[hidden] { display: none; }
 .scanbar__track {
   position: relative;
   height: 6px; border-radius: 999px;

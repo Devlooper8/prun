@@ -112,7 +112,7 @@ export type ScanEvent =
   | { kind: "discovering"; scanned: number }
   | { kind: "discovered"; total: number }
   | { kind: "located"; location: Location; done: number; total: number }
-  | { kind: "done"; root: string; categories: Category[] };
+  | { kind: "done"; root: string; categories: Category[]; errors: number };
 
 /**
  * Progress streamed from the backend `clean` command over a Tauri Channel.

@@ -53,9 +53,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         // Tracks what the last scan offered, so `clean` can only delete vetted paths.
         .manage(commands::Reclaimable::default())
+        // Shared cancel flag so the UI can stop a long-running scan.
+        .manage(commands::Cancel::default())
         .invoke_handler(tauri::generate_handler![
             commands::scan,
             commands::scan_caches,
+            commands::cancel_scan,
             commands::clean,
             commands::rules_status,
             commands::open_rules_file,

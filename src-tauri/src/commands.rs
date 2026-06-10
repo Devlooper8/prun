@@ -7,6 +7,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use tauri::ipc::Channel;
@@ -46,6 +47,23 @@ impl Reclaimable {
     }
 }
 
+/// A shared "stop the current scan" flag. The UI's cancel button flips it via the
+/// `cancel_scan` command; the running walk/sizing checks it and bails promptly.
+/// Each new scan clears it, so a stale cancel never aborts the next run.
+#[derive(Default, Clone)]
+pub struct Cancel(Arc<AtomicBool>);
+
+impl Cancel {
+    /// Clear the flag for a fresh scan and hand back the shared flag to check.
+    fn begin(&self) -> Arc<AtomicBool> {
+        self.0.store(false, Ordering::Relaxed);
+        self.0.clone()
+    }
+    fn signal(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Walk the root and stream progress + each reclaimable dir to the UI as it is
 /// discovered and sized. Results arrive over `on_event` rather than as a single
 /// return value, so the window stays responsive on huge trees.
@@ -54,13 +72,16 @@ pub async fn scan(
     opts: ScanOptions,
     on_event: Channel<ScanEvent>,
     reclaimable: State<'_, Reclaimable>,
+    cancel: State<'_, Cancel>,
 ) -> Result<(), String> {
     let offered = reclaimable.inner().clone();
     // A fresh scan replaces what the previous one offered.
     offered.reset();
+    // Clear any stale cancel and share the flag with the walk.
+    let cancel = cancel.begin();
     // Filesystem walking is blocking; keep the UI thread free.
     tauri::async_runtime::spawn_blocking(move || {
-        run_scan(&opts, &move |event| {
+        run_scan(&opts, &cancel, &move |event| {
             // Record each discovered path so a later `clean` can be authorized.
             if let ScanEvent::Located { location, .. } = &event {
                 offered.offer(&location.path);
@@ -80,11 +101,13 @@ pub async fn scan(
 pub async fn scan_caches(
     on_event: Channel<ScanEvent>,
     reclaimable: State<'_, Reclaimable>,
+    cancel: State<'_, Cancel>,
 ) -> Result<(), String> {
     let offered = reclaimable.inner().clone();
     offered.reset(); // the caches view replaces what a project scan offered
+    let cancel = cancel.begin();
     tauri::async_runtime::spawn_blocking(move || {
-        run_scan_caches(&move |event| {
+        run_scan_caches(&cancel, &move |event| {
             if let ScanEvent::Located { location, .. } = &event {
                 offered.offer(&location.path);
             }
@@ -93,6 +116,13 @@ pub async fn scan_caches(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+/// Ask the running scan (project or caches) to stop. Idempotent and safe to call
+/// when nothing is scanning — the next scan clears the flag before starting.
+#[tauri::command]
+pub fn cancel_scan(cancel: State<'_, Cancel>) {
+    cancel.signal();
 }
 
 /// Remove the selected paths, streaming per-path progress to the UI over

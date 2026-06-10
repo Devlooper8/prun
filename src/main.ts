@@ -31,7 +31,7 @@ interface ScanHandlers {
   onDiscovering(scanned: number): void;
   onDiscovered(total: number): void;
   onLocated(location: Location, done: number, total: number): void;
-  onDone(root: string, categories: Category[]): void;
+  onDone(root: string, categories: Category[], errors: number): void;
 }
 
 /** Route one streamed Channel event to the handler set. */
@@ -40,8 +40,22 @@ function dispatch(h: ScanHandlers, ev: ScanEvent): void {
     case "discovering": h.onDiscovering(ev.scanned); break;
     case "discovered": h.onDiscovered(ev.total); break;
     case "located": h.onLocated(ev.location, ev.done, ev.total); break;
-    case "done": h.onDone(ev.root, ev.categories); break;
+    case "done": h.onDone(ev.root, ev.categories, ev.errors); break;
   }
+}
+
+/** Browser-preview cancel flag (the Tauri path cancels via the backend command). */
+let browserScanCancelled = false;
+
+/** Ask the running scan to stop. In the Tauri shell this signals the backend; in
+ *  a plain browser it flips a flag the simulate loops check. */
+async function cancelScan(): Promise<void> {
+  if (IS_TAURI) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("cancel_scan");
+    return;
+  }
+  browserScanCancelled = true;
 }
 
 /**
@@ -75,6 +89,7 @@ async function runScanCaches(handlers: ScanHandlers): Promise<void> {
 /** Browser-only: fake the streaming sequence from SAMPLE for UI preview. */
 async function simulateScan(h: ScanHandlers): Promise<void> {
   for (let i = 1; i <= 6; i++) {
+    if (browserScanCancelled) return h.onDone(SAMPLE.root, [], 0);
     await delay(110);
     h.onDiscovering(i * 240);
   }
@@ -82,10 +97,11 @@ async function simulateScan(h: ScanHandlers): Promise<void> {
   h.onDiscovered(locs.length);
   let done = 0;
   for (const loc of locs) {
+    if (browserScanCancelled) break;
     await delay(140);
     h.onLocated(loc, ++done, locs.length);
   }
-  h.onDone(SAMPLE.root, SAMPLE.categories);
+  h.onDone(SAMPLE.root, SAMPLE.categories, 0);
 }
 
 /** Browser-only preview of the system-caches view. */
@@ -97,16 +113,18 @@ async function simulateCaches(h: ScanHandlers): Promise<void> {
     { path: "~/.npm/_cacache", project: "npm cache", artifact: "/_cacache", category: "node", size: 1.2 * GB, age_secs: 60 * 86400, git_ignored: true },
   ];
   for (let i = 1; i <= 3; i++) {
+    if (browserScanCancelled) return h.onDone("System caches", [], 0);
     await delay(120);
     h.onDiscovering(i * 2);
   }
   h.onDiscovered(caches.length);
   let done = 0;
   for (const c of caches) {
+    if (browserScanCancelled) break;
     await delay(160);
     h.onLocated(c, ++done, caches.length);
   }
-  h.onDone("System caches", rollupCategories(caches));
+  h.onDone("System caches", rollupCategories(caches), 0);
 }
 
 /** Callbacks the clean drives as per-path results stream in. */
@@ -215,11 +233,21 @@ const scanbar = $<HTMLDivElement>("#scanbar");
 const scanFill = $<HTMLDivElement>("#scan-fill");
 const scanRoot = $<HTMLSpanElement>("#scan-root");
 const scanPct = $<HTMLSpanElement>("#scan-pct");
+const scanCancel = $<HTMLButtonElement>("#scan-cancel");
 const viewClean = $<HTMLElement>("#view-clean");
 const viewRules = $<HTMLElement>("#view-rules");
 
 /* ───────────────────────── Helpers ───────────────────────────── */
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Toast text after a scan: the count, plus an unreadable-items note when the
+ *  backend couldn't fully read some paths (so a wrong total isn't shown as final). */
+function scanSummary(count: number, errors: number, noun = "location"): string {
+  const base = `Found ${count} ${noun}${count === 1 ? "" : "s"}`;
+  return errors > 0
+    ? `${base} · ${errors} item${errors === 1 ? "" : "s"} unreadable`
+    : base;
+}
 
 /** Locations passing the current category/age/git filters (biggest first). Thin
  *  wrapper that feeds the global filter state into the pure `filterLocations`. */
@@ -243,12 +271,16 @@ function showScanbar(rootLabel: string) {
   scanPct.textContent = "";
   scanbar.classList.add("scanbar--indeterminate");
   scanFill.style.width = ""; // clear inline width so the CSS marquee applies
+  scanCancel.hidden = false; // scans are cancellable
+  scanCancel.disabled = false;
+  scanCancel.textContent = "Cancel";
 }
 function hideScanbar() {
   scanbar.hidden = true;
   scanbar.classList.remove("scanbar--indeterminate");
   scanFill.style.width = "0%";
   scanPct.textContent = "";
+  scanCancel.hidden = true;
 }
 function scanDiscovering() {
   scanbar.classList.add("scanbar--indeterminate");
@@ -271,6 +303,7 @@ function showCleanbar() {
   scanRoot.textContent = "Cleaning…";
   scanFill.style.width = "0%";
   scanPct.textContent = "0%";
+  scanCancel.hidden = true; // a clean isn't cancelled from here (it streams per-path)
 }
 function cleanProgress(path: string, done: number, total: number) {
   scanRoot.textContent = `Cleaning… ${shortPath(path)}`;
@@ -460,6 +493,7 @@ async function doScan() {
   // Reset to an empty live result the stream will fill in.
   state.scanning = true;
   state.mode = "scan";
+  browserScanCancelled = false;
   rescanBtn.disabled = true;
   cachesBtn.disabled = true;
   state.result = { root: opts.root, categories: [], locations: [] };
@@ -468,6 +502,7 @@ async function doScan() {
   state.expanded.clear();
   state.failed.clear();
   let maxDone = 0;
+  let scanErrors = 0;
 
   showScanbar(opts.root);
   render();
@@ -487,9 +522,10 @@ async function doScan() {
         scanSizing(maxDone / total);
         scheduleRender();
       },
-      onDone(root, categories) {
+      onDone(root, categories, errors) {
         state.result!.root = root;
         state.result!.categories = categories;
+        scanErrors = errors;
       },
     });
 
@@ -497,7 +533,7 @@ async function doScan() {
     state.selected = new Set(visibleLocations().map((l) => l.path));
     hideScanbar();
     render();
-    toast(`Found ${state.result.locations.length} locations`);
+    toast(scanSummary(state.result.locations.length, scanErrors));
   } catch (err) {
     hideScanbar();
     render();
@@ -515,6 +551,7 @@ async function doScanCaches() {
   if (state.scanning || state.cleaning) return;
   state.scanning = true;
   state.mode = "caches";
+  browserScanCancelled = false;
   rescanBtn.disabled = true;
   cachesBtn.disabled = true;
   state.result = { root: "System caches", categories: [], locations: [] };
@@ -523,6 +560,7 @@ async function doScanCaches() {
   state.expanded.clear();
   state.failed.clear();
   let maxDone = 0;
+  let cacheErrors = 0;
 
   showScanbar("System caches");
   render();
@@ -542,15 +580,16 @@ async function doScanCaches() {
         scanSizing(maxDone / total);
         scheduleRender();
       },
-      onDone(root, categories) {
+      onDone(root, categories, errors) {
         state.result!.root = root;
         state.result!.categories = categories;
+        cacheErrors = errors;
       },
     });
 
     hideScanbar();
     render();
-    toast(`Found ${state.result.locations.length} system caches`);
+    toast(scanSummary(state.result.locations.length, cacheErrors, "system cache"));
   } catch (err) {
     hideScanbar();
     render();
@@ -671,6 +710,13 @@ function wire() {
   // rescan + system caches + folder picker
   $("#rescan").addEventListener("click", doScan);
   $("#caches").addEventListener("click", doScanCaches);
+
+  // cancel the in-flight scan (button lives in the progress strip)
+  scanCancel.addEventListener("click", () => {
+    scanCancel.disabled = true;
+    scanCancel.textContent = "Cancelling…";
+    cancelScan();
+  });
   rootInput.addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") doScan();
   });

@@ -4,20 +4,24 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use rayon::prelude::*;
 
-use crate::fs_util::{dir_size, expand_root, leaf_artifact, mtime_secs, now_secs};
+use crate::fs_util::{expand_root, leaf_artifact, measure_tree, now_secs};
 use crate::rules::{load_matcher, Matcher};
 
 use super::{rollup, Location, ScanEvent};
 
-pub fn scan_caches(emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
-    scan_caches_with(&load_matcher(), emit)
+pub fn scan_caches(cancel: &AtomicBool, emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
+    scan_caches_with(&load_matcher(), cancel, emit)
 }
 
-fn scan_caches_with(matcher: &Matcher, emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
+fn scan_caches_with(
+    matcher: &Matcher,
+    cancel: &AtomicBool,
+    emit: &(dyn Fn(ScanEvent) + Sync),
+) -> Result<(), String> {
     let now = now_secs();
     let mut pending: Vec<(PathBuf, String, String)> = Vec::new(); // (path, ecosystem, cache name)
     for gc in &matcher.global_caches {
@@ -36,16 +40,22 @@ fn scan_caches_with(matcher: &Matcher, emit: &(dyn Fn(ScanEvent) + Sync)) -> Res
     emit(ScanEvent::Discovered { total });
 
     let done = AtomicUsize::new(0);
+    let errors = AtomicU64::new(0);
     let mut locations: Vec<Location> = pending
         .par_iter()
-        .map(|(p, eco, name)| {
+        .filter_map(|(p, eco, name)| {
+            if cancel.load(Ordering::Relaxed) {
+                return None; // user cancelled — stop sizing further caches
+            }
+            let measured = measure_tree(p);
+            errors.fetch_add(measured.errors, Ordering::Relaxed);
             let location = Location {
                 path: p.to_string_lossy().into_owned(),
                 project: name.clone(),
                 artifact: leaf_artifact(p),
                 category: eco.clone(),
-                size: dir_size(p),
-                age_secs: now.saturating_sub(mtime_secs(p)),
+                size: measured.size,
+                age_secs: now.saturating_sub(measured.newest_mtime),
                 git_ignored: true,
             };
             let n = done.fetch_add(1, Ordering::Relaxed) + 1;
@@ -54,7 +64,7 @@ fn scan_caches_with(matcher: &Matcher, emit: &(dyn Fn(ScanEvent) + Sync)) -> Res
                 done: n,
                 total,
             });
-            location
+            Some(location)
         })
         .collect();
 
@@ -62,6 +72,7 @@ fn scan_caches_with(matcher: &Matcher, emit: &(dyn Fn(ScanEvent) + Sync)) -> Res
     emit(ScanEvent::Done {
         root: "System caches".to_string(),
         categories: rollup(&locations),
+        errors: errors.load(Ordering::Relaxed),
     });
     Ok(())
 }
@@ -119,7 +130,8 @@ paths = ['{off}']
         let m = Matcher::compile(toml::from_str(&toml).expect("test toml parses"));
 
         let paths: Mutex<Vec<String>> = Mutex::new(Vec::new());
-        scan_caches_with(&m, &|ev| {
+        let cancel = AtomicBool::new(false);
+        scan_caches_with(&m, &cancel, &|ev| {
             if let ScanEvent::Located { location, .. } = ev {
                 paths.lock().unwrap().push(location.path);
             }

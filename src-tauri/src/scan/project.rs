@@ -13,7 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use ignore::{WalkBuilder, WalkState};
@@ -21,7 +21,7 @@ use rayon::prelude::*;
 use walkdir::WalkDir;
 
 use crate::fs_util::{
-    dir_size, expand_root, is_git_ignored, leaf_artifact, load_prunignore, mtime_secs, now_secs,
+    expand_root, is_git_ignored, leaf_artifact, load_prunignore, measure_tree, now_secs,
     parent_name,
 };
 use crate::rules::{load_matcher, norm_seg, Matcher};
@@ -46,13 +46,18 @@ struct Sink {
     scanned: AtomicU64,
 }
 
-pub fn scan(opts: &ScanOptions, emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
-    scan_with(&load_matcher(), opts, emit)
+pub fn scan(
+    opts: &ScanOptions,
+    cancel: &AtomicBool,
+    emit: &(dyn Fn(ScanEvent) + Sync),
+) -> Result<(), String> {
+    scan_with(&load_matcher(), opts, cancel, emit)
 }
 
 fn scan_with(
     matcher: &Matcher,
     opts: &ScanOptions,
+    cancel: &AtomicBool,
     emit: &(dyn Fn(ScanEvent) + Sync),
 ) -> Result<(), String> {
     let root = expand_root(&opts.root);
@@ -83,7 +88,7 @@ fn scan_with(
             .follow_links(false)
             .threads(threads)
             .build_parallel()
-            .run(move || Box::new(move |result| visit(result, matcher, sink, emit)));
+            .run(move || Box::new(move |result| visit(result, matcher, sink, cancel, emit)));
     }
 
     let phase1 = std::mem::take(&mut *sink.candidates.lock().unwrap());
@@ -137,18 +142,13 @@ fn scan_with(
         if opts.skip_git_tracked && !git_ignored {
             continue; // not ignored by git => possibly tracked => leave alone
         }
-        let age_secs = now.saturating_sub(mtime_secs(&c.path));
-        if let Some(min_days) = opts.min_age_days {
-            if age_secs < min_days * 86_400 {
-                continue;
-            }
-        }
+        // Age is no longer decided here: a deep "newest file" mtime needs the same
+        // walk as sizing, so the age gate moves into phase 3 (see below).
         pending.push(PendingLocation {
             project: parent_name(&c.path),
             artifact: leaf_artifact(&c.path),
             path: c.path,
             category: c.ecosystem,
-            age_secs,
             git_ignored,
         });
     }
@@ -156,28 +156,43 @@ fn scan_with(
     let total = pending.len();
     emit(ScanEvent::Discovered { total });
 
-    // ── Phase 3: parallel sizing ─────────────────────────────────────
+    // ── Phase 3: parallel sizing (also resolves deep age + read errors) ──
+    // One walk per candidate yields size, newest mtime, and an error count. The
+    // min-age gate runs here, post-walk, because honest "untouched for N days" needs
+    // the newest file's mtime — not the top dir's, which goes stale during rebuilds.
+    // Too-fresh candidates are still walked (so the progress bar completes) but not
+    // offered. `cancel` lets an in-flight scan stop promptly when the user asks.
+    let min_age_secs = opts.min_age_days.map(|d| d * 86_400);
     let done = AtomicUsize::new(0);
+    let errors = AtomicU64::new(0);
     let mut locations: Vec<Location> = pending
         .par_iter()
-        .map(|p| {
-            let size = dir_size(&p.path);
+        .filter_map(|p| {
+            if cancel.load(Ordering::Relaxed) {
+                return None; // user cancelled — stop sizing further candidates
+            }
+            let measured = measure_tree(&p.path);
+            errors.fetch_add(measured.errors, Ordering::Relaxed);
+            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
+            let age_secs = now.saturating_sub(measured.newest_mtime);
+            if min_age_secs.is_some_and(|min| age_secs < min) {
+                return None; // walked for the progress bar, but too fresh to offer
+            }
             let location = Location {
                 path: p.path.to_string_lossy().into_owned(),
                 project: p.project.clone(),
                 artifact: p.artifact.clone(),
                 category: p.category.clone(),
-                size,
-                age_secs: p.age_secs,
+                size: measured.size,
+                age_secs,
                 git_ignored: p.git_ignored,
             };
-            let n = done.fetch_add(1, Ordering::Relaxed) + 1;
             emit(ScanEvent::Located {
                 location: location.clone(),
                 done: n,
                 total,
             });
-            location
+            Some(location)
         })
         .collect();
 
@@ -185,6 +200,7 @@ fn scan_with(
     emit(ScanEvent::Done {
         root: root.to_string_lossy().into_owned(),
         categories: rollup(&locations),
+        errors: errors.load(Ordering::Relaxed),
     });
     Ok(())
 }
@@ -194,8 +210,12 @@ fn visit(
     result: Result<ignore::DirEntry, ignore::Error>,
     m: &Matcher,
     sink: &Sink,
+    cancel: &AtomicBool,
     emit: &(dyn Fn(ScanEvent) + Sync),
 ) -> WalkState {
+    if cancel.load(Ordering::Relaxed) {
+        return WalkState::Quit; // user cancelled mid-discovery
+    }
     let entry = match result {
         Ok(e) => e,
         Err(_) => return WalkState::Continue,
@@ -391,12 +411,12 @@ fn has_ancestor_in(p: &Path, set: &HashSet<PathBuf>) -> bool {
 }
 
 /// A candidate that has passed every size-independent filter, awaiting sizing.
+/// Age is resolved during sizing (phase 3), so it isn't carried here.
 struct PendingLocation {
     path: PathBuf,
     project: String,
     artifact: String,
     category: String,
-    age_secs: u64,
     git_ignored: bool,
 }
 
@@ -427,7 +447,8 @@ mod tests {
     /// Run a scan and return (artifact, category) pairs.
     fn run(m: &Matcher, root: &Path) -> Vec<(String, String)> {
         let out: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
-        scan_with(m, &opts(root), &|ev| {
+        let cancel = AtomicBool::new(false);
+        scan_with(m, &opts(root), &cancel, &|ev| {
             if let ScanEvent::Located { location, .. } = ev {
                 out.lock()
                     .unwrap()
@@ -474,7 +495,8 @@ mod tests {
         let kinds: Mutex<Vec<&'static str>> = Mutex::new(Vec::new());
         let total: Mutex<Option<usize>> = Mutex::new(None);
         let cat: Mutex<Option<String>> = Mutex::new(None);
-        scan_with(&embedded(), &opts(&root), &|ev| {
+        let cancel = AtomicBool::new(false);
+        scan_with(&embedded(), &opts(&root), &cancel, &|ev| {
             let tag = match &ev {
                 ScanEvent::Discovering { .. } => "discovering",
                 ScanEvent::Discovered { total: t } => {
@@ -497,6 +519,33 @@ mod tests {
         assert_eq!(*cat.lock().unwrap(), Some("rust".to_string()));
         assert_eq!(kinds.last(), Some(&"done"), "Done must be the final event");
         assert_eq!(kinds.iter().filter(|k| **k == "located").count(), 1);
+    }
+
+    #[test]
+    fn cancelled_scan_offers_nothing() {
+        let root = fresh_tmp("cancel");
+        let proj = root.join("rustproj");
+        mkdir(&proj);
+        touch(&proj.join("Cargo.toml"));
+        touch(&proj.join("target").join("blob"));
+
+        // Pre-cancelled: the discovery walk Quits before classifying anything, so no
+        // candidate is offered. Pins the cancellation wiring end-to-end (a live
+        // mid-scan cancel is best-effort, but the flag is honored).
+        let cancel = AtomicBool::new(true);
+        let located: Mutex<usize> = Mutex::new(0);
+        scan_with(&embedded(), &opts(&root), &cancel, &|ev| {
+            if let ScanEvent::Located { .. } = ev {
+                *located.lock().unwrap() += 1;
+            }
+        })
+        .unwrap();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(
+            located.into_inner().unwrap(),
+            0,
+            "a cancelled scan must not offer any location"
+        );
     }
 
     // ── new model coverage ───────────────────────────────────────────

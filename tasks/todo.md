@@ -411,12 +411,13 @@ the junior-readable simplicity. Branch: `feat/enterprise-grade-tier0-3`.
 - [x] Vitest: 15 tests over the extracted pure logic (format/grouping/rollup/filter)
 - Verify: cargo test **31/31**, clippy clean, fmt --check clean, vitest 15/15, tsc + vite build clean; CI/dependabot YAML parse-checked
 
-## Tier 2 — Correctness & robustness
-- [ ] Scan cancellation: AtomicBool in managed state + `cancel_scan` command; walk + sizing check it
-- [ ] Surface skipped/errored paths (don't silently swallow FS/git errors); report a count in `Done`
-- [ ] Honest age: deep newest-mtime folded into the size walk (one pass)
-- [ ] Size semantics: dedup hard links + document apparent-vs-on-disk
-- [ ] Split `main.ts` pure logic into `format.ts` / `grouping.ts` (enables Vitest, SRP)
+## Tier 2 — Correctness & robustness ✅
+- [x] Scan cancellation: `Cancel` (Arc<AtomicBool>) managed state + `cancel_scan` command; walk Quits, sizing short-circuits; cancel button in the progress strip
+- [x] Surface read errors: `measure_tree` counts unreadable entries; summed into `ScanEvent::Done.errors`; toast shows "· N items unreadable"
+- [x] Honest age: deep newest-mtime folded into the one sizing walk; age gate moved post-size (project + caches)
+- [x] Size semantics: hard-link dedup on Unix (dev+ino); apparent-vs-on-disk documented on `Measured`
+- [x] Split `main.ts` pure logic into `format.ts` / `grouping.ts` (done in Tier 1)
+- Verify: cargo test **34/34** (+3), clippy clean, fmt --check clean, vitest 15/15, tsc + vite build clean
 
 ## Tier 3 — Distribution groundwork
 - [ ] Headless `prun` CLI over the pure core (scan/clean/rules) — bonus test surface

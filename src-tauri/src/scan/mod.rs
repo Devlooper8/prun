@@ -65,10 +65,13 @@ pub enum ScanEvent {
         done: usize,
         total: usize,
     },
-    /// Scan complete, with the final category roll-up.
+    /// Scan complete, with the final category roll-up. `errors` is how many entries
+    /// couldn't be read while sizing (permissions, races) — surfaced so a wrong total
+    /// doesn't masquerade as authoritative.
     Done {
         root: String,
         categories: Vec<Category>,
+        errors: u64,
     },
 }
 

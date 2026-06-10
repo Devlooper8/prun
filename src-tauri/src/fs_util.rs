@@ -51,17 +51,71 @@ pub(crate) fn parent_name(p: &Path) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn dir_size(path: &Path) -> u64 {
-    WalkDir::new(path)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        // file_type() is free (cached from readdir); filtering before metadata()
-        // skips a stat syscall on every directory and symlink.
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| e.metadata().ok())
-        .map(|m| m.len())
-        .sum()
+/// The result of walking one artifact tree in a single pass.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct Measured {
+    /// Apparent size in bytes (sum of file lengths). On Unix, a file reachable by
+    /// several hard links is counted once. NOTE: this is the logical size, not the
+    /// on-disk allocation — actual reclaim is a little higher (block rounding) and,
+    /// for reflink/CoW clones, can be lower. Good enough for "how big is this".
+    pub size: u64,
+    /// Newest modification time anywhere in the tree (unix secs), so "untouched for
+    /// N days" reflects the most recent file change — not just the top dir's mtime,
+    /// which often goes stale while files beneath it are rebuilt.
+    pub newest_mtime: u64,
+    /// Count of entries that couldn't be read/stat'd (permissions, races). Surfaced
+    /// rather than silently dropped, so a wrong total doesn't look authoritative.
+    pub errors: u64,
+}
+
+/// Walk `path` once, accumulating size, the newest mtime, and a read-error count.
+/// Replaces a plain size sum: folding mtime + error tracking into the same walk is
+/// free (we already stat every file) and gives honest age and error reporting.
+pub(crate) fn measure_tree(path: &Path) -> Measured {
+    // The dir's own mtime is the floor: an empty or fully-deleted tree still has one.
+    let mut m = Measured {
+        newest_mtime: mtime_secs(path),
+        ..Measured::default()
+    };
+    #[cfg(unix)]
+    let mut seen_links: std::collections::HashSet<(u64, u64)> = std::collections::HashSet::new();
+
+    for entry in WalkDir::new(path).follow_links(false) {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => {
+                m.errors += 1;
+                continue;
+            }
+        };
+        // file_type() is free (cached from readdir); dirs/symlinks contribute no
+        // size, and the root mtime floor already covers structural changes.
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(meta) => meta,
+            Err(_) => {
+                m.errors += 1;
+                continue;
+            }
+        };
+        if let Ok(modified) = meta.modified() {
+            if let Ok(d) = modified.duration_since(UNIX_EPOCH) {
+                m.newest_mtime = m.newest_mtime.max(d.as_secs());
+            }
+        }
+        // Count a hard-linked file only once (pnpm-style stores hard-link heavily).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            if meta.nlink() > 1 && !seen_links.insert((meta.dev(), meta.ino())) {
+                continue;
+            }
+        }
+        m.size += meta.len();
+    }
+    m
 }
 
 pub(crate) fn mtime_secs(path: &Path) -> u64 {
@@ -103,4 +157,40 @@ pub(crate) fn is_git_ignored(
         dir = d.parent();
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testsupport::{fresh_tmp, touch};
+
+    #[test]
+    fn measure_tree_sums_size_and_tracks_recency() {
+        let root = fresh_tmp("measure");
+        touch(&root.join("a.bin")); // 1 byte ("x")
+        touch(&root.join("sub").join("b.bin")); // 1 byte, nested
+        let m = measure_tree(&root);
+        let now = now_secs();
+        let _ = fs::remove_dir_all(&root);
+
+        assert_eq!(m.size, 2, "two 1-byte files summed across the tree");
+        assert_eq!(m.errors, 0, "a clean tree reports no read errors");
+        assert!(m.newest_mtime > 0, "newest mtime is populated");
+        assert!(
+            now.saturating_sub(m.newest_mtime) < 3600,
+            "just-written files read as recently touched"
+        );
+    }
+
+    #[test]
+    fn measure_tree_of_empty_dir_is_zero_size_with_a_floor_mtime() {
+        let root = fresh_tmp("measure_empty");
+        let m = measure_tree(&root);
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(m.size, 0);
+        assert!(
+            m.newest_mtime > 0,
+            "an empty dir still has its own mtime as a floor"
+        );
+    }
 }
