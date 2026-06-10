@@ -122,7 +122,10 @@ pub(crate) struct GlobOwners {
 impl GlobOwners {
     /// The owner index of every glob that matches `name`.
     pub(crate) fn matches<'a>(&'a self, name: &Path) -> impl Iterator<Item = usize> + 'a {
-        self.set.matches(name).into_iter().map(move |i| self.owners[i])
+        self.set
+            .matches(name)
+            .into_iter()
+            .map(move |i| self.owners[i])
     }
 }
 

@@ -56,7 +56,8 @@ pub async fn scan(
     reclaimable: State<'_, Reclaimable>,
 ) -> Result<(), String> {
     let offered = reclaimable.inner().clone();
-    offered.reset(); // a fresh scan replaces what the previous one offered
+    // A fresh scan replaces what the previous one offered.
+    offered.reset();
     // Filesystem walking is blocking; keep the UI thread free.
     tauri::async_runtime::spawn_blocking(move || {
         run_scan(&opts, &move |event| {

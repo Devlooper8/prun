@@ -18,9 +18,17 @@ use serde::Serialize;
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CleanEvent {
     /// About to delete `path` (drives the "Cleaning… <path>" label).
-    Removing { path: String, done: usize, total: usize },
+    Removing {
+        path: String,
+        done: usize,
+        total: usize,
+    },
     /// `path` is gone (deleted now, or already absent).
-    Removed { path: String, done: usize, total: usize },
+    Removed {
+        path: String,
+        done: usize,
+        total: usize,
+    },
     /// `path` could not be removed (e.g. a file inside it is locked/in use).
     Failed {
         path: String,

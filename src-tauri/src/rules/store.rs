@@ -66,9 +66,10 @@ pub fn rules_status() -> RulesStatus {
     let mut using_override = false;
     let mut error = None;
     let rf: RuleFile = match (exists, path.as_ref()) {
-        (true, Some(p)) => match fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|t| {
-            toml::from_str::<RuleFile>(&t).map_err(|e| e.to_string())
-        }) {
+        (true, Some(p)) => match fs::read_to_string(p)
+            .map_err(|e| e.to_string())
+            .and_then(|t| toml::from_str::<RuleFile>(&t).map_err(|e| e.to_string()))
+        {
             Ok(rf) => {
                 using_override = true;
                 merge_over_embedded(rf)
@@ -219,8 +220,8 @@ fn delta_section<T: Clone + PartialEq>(
     let mut kept: Vec<T> = Vec::new();
     for t in full {
         match base_by_id.get(id_of(t)) {
-            Some(b) if *b == t => {}       // unmodified built-in → not stored
-            _ => kept.push(t.clone()),     // new or modified → stored
+            Some(b) if *b == t => {}   // unmodified built-in → not stored
+            _ => kept.push(t.clone()), // new or modified → stored
         }
     }
     let removed: Vec<String> = base
@@ -388,20 +389,34 @@ mod tests {
     #[test]
     fn merge_override_edit_wins() {
         let mut ov: RuleFile = toml::from_str(EMBEDDED).unwrap();
-        ov.rules.iter_mut().find(|r| r.id == "rust-cargo").unwrap().enabled = false;
+        ov.rules
+            .iter_mut()
+            .find(|r| r.id == "rust-cargo")
+            .unwrap()
+            .enabled = false;
         let merged = merge_over_embedded(ov);
         let rust = merged.rules.iter().find(|r| r.id == "rust-cargo").unwrap();
-        assert!(!rust.enabled, "the override's disabled state must win over embedded");
+        assert!(
+            !rust.enabled,
+            "the override's disabled state must win over embedded"
+        );
     }
 
     /// A tombstone in a (delta) override suppresses the matching built-in, while
     /// untouched built-ins still come through.
     #[test]
     fn merge_tombstone_suppresses_builtin() {
-        let ov: RuleFile = toml::from_str("schema_version = 3\n[removed]\nrules = [\"go\"]\n").unwrap();
+        let ov: RuleFile =
+            toml::from_str("schema_version = 3\n[removed]\nrules = [\"go\"]\n").unwrap();
         let merged = merge_over_embedded(ov);
-        assert!(!merged.rules.iter().any(|r| r.id == "go"), "tombstoned built-in must be dropped");
-        assert!(merged.rules.iter().any(|r| r.id == "rust-cargo"), "other built-ins still present");
+        assert!(
+            !merged.rules.iter().any(|r| r.id == "go"),
+            "tombstoned built-in must be dropped"
+        );
+        assert!(
+            merged.rules.iter().any(|r| r.id == "rust-cargo"),
+            "other built-ins still present"
+        );
     }
 
     /// Save keeps only modified + user-added entries and tombstones removed built-ins;
@@ -410,7 +425,11 @@ mod tests {
     fn delta_captures_only_changes() {
         let base: RuleFile = toml::from_str(EMBEDDED).unwrap();
         let mut full = base.clone();
-        full.rules.iter_mut().find(|r| r.id == "rust-cargo").unwrap().enabled = false; // modify
+        full.rules
+            .iter_mut()
+            .find(|r| r.id == "rust-cargo")
+            .unwrap()
+            .enabled = false; // modify
         let mut mine = base.rules[0].clone();
         mine.id = "my-custom".to_string();
         full.rules.push(mine); // new user rule
@@ -418,10 +437,20 @@ mod tests {
 
         let d = delta_against_embedded(&full);
         let ids: Vec<&str> = d.rules.iter().map(|r| r.id.as_str()).collect();
-        assert!(ids.contains(&"rust-cargo"), "modified built-in kept; got {ids:?}");
+        assert!(
+            ids.contains(&"rust-cargo"),
+            "modified built-in kept; got {ids:?}"
+        );
         assert!(ids.contains(&"my-custom"), "user rule kept; got {ids:?}");
-        assert!(!ids.contains(&"maven"), "unmodified built-in must be stripped; got {ids:?}");
-        assert_eq!(d.removed.rules, vec!["go".to_string()], "removed built-in tombstoned");
+        assert!(
+            !ids.contains(&"maven"),
+            "unmodified built-in must be stripped; got {ids:?}"
+        );
+        assert_eq!(
+            d.removed.rules,
+            vec!["go".to_string()],
+            "removed built-in tombstoned"
+        );
     }
 
     /// Full cycle: save a customization, reload via merge, customization survives and
@@ -431,13 +460,26 @@ mod tests {
         let root = fresh_tmp("rt");
         let path = root.join("rules.toml");
         let mut full: RuleFile = toml::from_str(EMBEDDED).unwrap();
-        full.rules.iter_mut().find(|r| r.id == "make-objects").unwrap().enabled = true;
+        full.rules
+            .iter_mut()
+            .find(|r| r.id == "make-objects")
+            .unwrap()
+            .enabled = true;
         save_rules_to(&path, &full).expect("save");
         let merged = merge_over_embedded(load_rules_from(&path).expect("load"));
         let _ = fs::remove_dir_all(&root);
-        assert_eq!(full.rules.len(), merged.rules.len(), "no rules lost across the cycle");
+        assert_eq!(
+            full.rules.len(),
+            merged.rules.len(),
+            "no rules lost across the cycle"
+        );
         assert!(
-            merged.rules.iter().find(|r| r.id == "make-objects").unwrap().enabled,
+            merged
+                .rules
+                .iter()
+                .find(|r| r.id == "make-objects")
+                .unwrap()
+                .enabled,
             "the user's customization must survive save→load"
         );
     }
@@ -466,11 +508,17 @@ mod tests {
         // Charset guard: an ecosystem carrying markup (the old XSS vector) is refused.
         let mut markup_eco = base.clone();
         markup_eco.rules[0].ecosystem = "x<img src=x onerror=alert(1)>".to_string();
-        assert!(validate_rules(&markup_eco).is_err(), "markup in ecosystem must be rejected");
+        assert!(
+            validate_rules(&markup_eco).is_err(),
+            "markup in ecosystem must be rejected"
+        );
 
         let mut upper_id = base.clone();
         upper_id.rules[0].id = "Rust Cargo".to_string();
-        assert!(validate_rules(&upper_id).is_err(), "spaces/uppercase in id must be rejected");
+        assert!(
+            validate_rules(&upper_id).is_err(),
+            "spaces/uppercase in id must be rejected"
+        );
     }
 
     #[test]

@@ -236,7 +236,13 @@ fn visit(
                     continue;
                 }
                 if match_dir_entry(path, segs).is_some() {
-                    push_cand(sink, path, &m.junk[*ji].ecosystem, m.rules.len() + *ji, true);
+                    push_cand(
+                        sink,
+                        path,
+                        &m.junk[*ji].ecosystem,
+                        m.rules.len() + *ji,
+                        true,
+                    );
                     return WalkState::Skip;
                 }
             }
@@ -302,7 +308,12 @@ fn push_cand(sink: &Sink, path: &Path, ecosystem: &str, rank: usize, is_dir: boo
 /// Walk one project root's subtree, collecting recursive-glob candidates while
 /// pruning already-claimed dirs, VCS metadata, and the contents of matched
 /// glob directories (so files inside `__pycache__` aren't claimed separately).
-fn glob_walk(root: &Path, rule_idx: usize, m: &Matcher, claimed: &HashSet<PathBuf>) -> Vec<Candidate> {
+fn glob_walk(
+    root: &Path,
+    rule_idx: usize,
+    m: &Matcher,
+    claimed: &HashSet<PathBuf>,
+) -> Vec<Candidate> {
     let rule = &m.rules[rule_idx];
     if !rule.enabled {
         return Vec::new();
@@ -418,7 +429,9 @@ mod tests {
         let out: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
         scan_with(m, &opts(root), &|ev| {
             if let ScanEvent::Located { location, .. } = ev {
-                out.lock().unwrap().push((location.artifact, location.category));
+                out.lock()
+                    .unwrap()
+                    .push((location.artifact, location.category));
             }
         })
         .unwrap();
@@ -440,7 +453,8 @@ mod tests {
         let arts = run(&embedded(), &root);
         let _ = fs::remove_dir_all(&root);
         assert!(
-            arts.iter().any(|(a, c)| a == "/node_modules" && c == "node"),
+            arts.iter()
+                .any(|(a, c)| a == "/node_modules" && c == "node"),
             "git-ignored node_modules must be found as node; got {arts:?}"
         );
         assert!(
@@ -567,7 +581,7 @@ mod tests {
         let proj = root.join("proj");
         mkdir(&proj);
         touch(&proj.join("CMakeLists.txt")); // source root (out-of-source layout)
-        // an arbitrarily-named build dir, NOT in the cmake `dirs` list
+                                             // an arbitrarily-named build dir, NOT in the cmake `dirs` list
         let bd = proj.join("cmake-build-minsizerel-system");
         touch(&bd.join("CMakeCache.txt"));
         touch(&bd.join("build.ninja"));
@@ -577,13 +591,14 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
 
         assert!(
-            arts.iter().any(|(a, c)| a == "/cmake-build-minsizerel-system" && c == "cpp"),
+            arts.iter()
+                .any(|(a, c)| a == "/cmake-build-minsizerel-system" && c == "cpp"),
             "the whole build tree should be one cpp entry; got {arts:?}"
         );
         assert!(
-            !arts
-                .iter()
-                .any(|(a, _)| a.contains("CMakeCache") || a.contains("CMakeFiles") || a.contains("ninja")),
+            !arts.iter().any(|(a, _)| a.contains("CMakeCache")
+                || a.contains("CMakeFiles")
+                || a.contains("ninja")),
             "build-tree contents must not be listed separately; got {arts:?}"
         );
     }
@@ -609,7 +624,8 @@ mod tests {
             "the in-source source root must NOT be reclaimed wholesale; got {arts:?}"
         );
         assert!(
-            arts.iter().any(|(a, c)| a == "/CMakeCache.txt" && c == "cpp"),
+            arts.iter()
+                .any(|(a, c)| a == "/CMakeCache.txt" && c == "cpp"),
             "loose in-source CMakeCache.txt should still be caught by globs; got {arts:?}"
         );
         assert!(
@@ -638,7 +654,9 @@ mod tests {
 
         let arts = run(&m, &root);
         let _ = fs::remove_dir_all(&root);
-        assert!(arts.iter().any(|(a, c)| a == "/.ccls-cache" && c == "editor"));
+        assert!(arts
+            .iter()
+            .any(|(a, c)| a == "/.ccls-cache" && c == "editor"));
         assert!(arts.iter().any(|(a, c)| a == "/.DS_Store" && c == "junk"));
     }
 
@@ -731,7 +749,10 @@ mod tests {
 
         let arts = run(&m, &root);
         let _ = fs::remove_dir_all(&root);
-        assert!(arts.is_empty(), "disabled go rule must not fire; got {arts:?}");
+        assert!(
+            arts.is_empty(),
+            "disabled go rule must not fire; got {arts:?}"
+        );
     }
 
     #[test]
@@ -799,7 +820,10 @@ mod tests {
 
         let ecos: HashSet<&str> = arts.iter().map(|(_, c)| c.as_str()).collect();
         for want in ["rust", "node", "python", "cpp", "dotnet", "junk"] {
-            assert!(ecos.contains(want), "expected ecosystem {want}; got {arts:?}");
+            assert!(
+                ecos.contains(want),
+                "expected ecosystem {want}; got {arts:?}"
+            );
         }
         assert!(arts.iter().any(|(a, _)| a == "/node_modules"));
         assert!(arts.iter().any(|(a, _)| a == "/target"));
@@ -839,7 +863,11 @@ mod tests {
 
         let arts = run(&m, &root);
         let _ = fs::remove_dir_all(&root);
-        assert_eq!(arts.len(), 1, "Target/ should match dirs=[\"target\"]; got {arts:?}");
+        assert_eq!(
+            arts.len(),
+            1,
+            "Target/ should match dirs=[\"target\"]; got {arts:?}"
+        );
         assert!(arts[0].0.eq_ignore_ascii_case("/target"), "got {arts:?}");
         assert_eq!(arts[0].1, "rust");
     }
@@ -861,6 +889,8 @@ mod tests {
         let arts = run(&m, &root);
         let _ = fs::remove_dir_all(&root);
         assert!(arts.iter().any(|(a, c)| a == "/target" && c == "rust"));
-        assert!(arts.iter().any(|(a, c)| a == "/node_modules" && c == "node"));
+        assert!(arts
+            .iter()
+            .any(|(a, c)| a == "/node_modules" && c == "node"));
     }
 }

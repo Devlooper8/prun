@@ -191,7 +191,11 @@ mod tests {
     fn round_trip_preserves_notes() {
         let rf: RuleFile = toml::from_str(EMBEDDED).unwrap();
         let back = round_trip(&rf);
-        let go = back.rules.iter().find(|r| r.id == "go").expect("go rule present");
+        let go = back
+            .rules
+            .iter()
+            .find(|r| r.id == "go")
+            .expect("go rule present");
         assert!(
             go.note.as_deref().unwrap_or("").contains("vendor"),
             "go note must survive the round-trip; got {:?}",

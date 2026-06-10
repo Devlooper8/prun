@@ -17,10 +17,7 @@ pub fn scan_caches(emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
     scan_caches_with(&load_matcher(), emit)
 }
 
-fn scan_caches_with(
-    matcher: &Matcher,
-    emit: &(dyn Fn(ScanEvent) + Sync),
-) -> Result<(), String> {
+fn scan_caches_with(matcher: &Matcher, emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
     let now = now_secs();
     let mut pending: Vec<(PathBuf, String, String)> = Vec::new(); // (path, ecosystem, cache name)
     for gc in &matcher.global_caches {

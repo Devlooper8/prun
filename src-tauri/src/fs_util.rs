@@ -16,7 +16,11 @@ pub(crate) fn expand_root(input: &str) -> PathBuf {
     if let Some(rest) = input.strip_prefix('~') {
         if let Some(home) = dirs::home_dir() {
             let rest = rest.trim_start_matches(['/', '\\']);
-            return if rest.is_empty() { home } else { home.join(rest) };
+            return if rest.is_empty() {
+                home
+            } else {
+                home.join(rest)
+            };
         }
     }
     PathBuf::from(input)
@@ -33,7 +37,9 @@ pub(crate) fn now_secs() -> u64 {
 pub(crate) fn leaf_artifact(p: &Path) -> String {
     format!(
         "/{}",
-        p.file_name().map(|s| s.to_string_lossy()).unwrap_or_default()
+        p.file_name()
+            .map(|s| s.to_string_lossy())
+            .unwrap_or_default()
     )
 }
 
