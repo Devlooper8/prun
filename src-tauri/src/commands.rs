@@ -5,7 +5,12 @@
 //! work off the UI thread and forward each event over a `Channel`. A dropped
 //! receiver (the window closed mid-operation) is ignored rather than aborting.
 
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+
 use tauri::ipc::Channel;
+use tauri::State;
 
 use crate::clean::{clean as run_clean, CleanEvent};
 use crate::rules::{
@@ -14,14 +19,51 @@ use crate::rules::{
 };
 use crate::scan::{scan as run_scan, scan_caches as run_scan_caches, ScanEvent, ScanOptions};
 
+/// The set of paths the most recent scan offered as reclaimable. `clean` refuses any
+/// path not in here, so a compromised webview (e.g. via an XSS payload) can only ask
+/// to delete what a real scan already surfaced to the user — never an arbitrary path
+/// on disk. This is the security boundary at the IPC edge, kept out of the pure
+/// `scan`/`clean` functions so those stay reusable and unit-testable. The set is
+/// reset at the start of every scan and filled as each location streams out, so it
+/// always mirrors exactly what the UI is currently showing.
+#[derive(Default, Clone)]
+pub struct Reclaimable(Arc<Mutex<HashSet<PathBuf>>>);
+
+impl Reclaimable {
+    fn reset(&self) {
+        self.0.lock().unwrap().clear();
+    }
+    fn offer(&self, path: &str) {
+        self.0.lock().unwrap().insert(PathBuf::from(path));
+    }
+    /// The first path that no scan has offered, if any — that clean must be refused.
+    fn first_unoffered<'a>(&self, paths: &'a [String]) -> Option<&'a str> {
+        let set = self.0.lock().unwrap();
+        paths
+            .iter()
+            .map(String::as_str)
+            .find(|p| !set.contains(Path::new(p)))
+    }
+}
+
 /// Walk the root and stream progress + each reclaimable dir to the UI as it is
 /// discovered and sized. Results arrive over `on_event` rather than as a single
 /// return value, so the window stays responsive on huge trees.
 #[tauri::command]
-pub async fn scan(opts: ScanOptions, on_event: Channel<ScanEvent>) -> Result<(), String> {
+pub async fn scan(
+    opts: ScanOptions,
+    on_event: Channel<ScanEvent>,
+    reclaimable: State<'_, Reclaimable>,
+) -> Result<(), String> {
+    let offered = reclaimable.inner().clone();
+    offered.reset(); // a fresh scan replaces what the previous one offered
     // Filesystem walking is blocking; keep the UI thread free.
     tauri::async_runtime::spawn_blocking(move || {
         run_scan(&opts, &move |event| {
+            // Record each discovered path so a later `clean` can be authorized.
+            if let ScanEvent::Located { location, .. } = &event {
+                offered.offer(&location.path);
+            }
             // A dropped receiver (window closed mid-scan) is not an error worth
             // aborting the walk over — just stop trying to deliver.
             let _ = on_event.send(event);
@@ -34,9 +76,17 @@ pub async fn scan(opts: ScanOptions, on_event: Channel<ScanEvent>) -> Result<(),
 /// Scan per-user shared caches (the "System caches" view). These are surfaced
 /// separately from a project scan and are never auto-selected in the UI.
 #[tauri::command]
-pub async fn scan_caches(on_event: Channel<ScanEvent>) -> Result<(), String> {
+pub async fn scan_caches(
+    on_event: Channel<ScanEvent>,
+    reclaimable: State<'_, Reclaimable>,
+) -> Result<(), String> {
+    let offered = reclaimable.inner().clone();
+    offered.reset(); // the caches view replaces what a project scan offered
     tauri::async_runtime::spawn_blocking(move || {
         run_scan_caches(&move |event| {
+            if let ScanEvent::Located { location, .. } = &event {
+                offered.offer(&location.path);
+            }
             let _ = on_event.send(event);
         })
     })
@@ -55,7 +105,16 @@ pub async fn clean(
     paths: Vec<String>,
     to_trash: bool,
     on_event: Channel<CleanEvent>,
+    reclaimable: State<'_, Reclaimable>,
 ) -> Result<(), String> {
+    // Authorization: only delete what a scan actually surfaced. A well-behaved UI
+    // never sends anything else; a path outside the set means a bug or an attack,
+    // so refuse the whole batch loudly rather than touch an unvetted path.
+    if let Some(bad) = reclaimable.first_unoffered(&paths) {
+        return Err(format!(
+            "refused: \"{bad}\" was not offered by a scan (clean only removes paths a scan surfaced)"
+        ));
+    }
     tauri::async_runtime::spawn_blocking(move || {
         run_clean(&paths, to_trash, &move |event| {
             // A dropped receiver (window closed mid-clean) is not worth aborting
@@ -102,4 +161,41 @@ pub fn open_rules_file() -> Result<String, String> {
     let path = ensure_override_file()?;
     open::that_detached(&path).map_err(|e| e.to_string())?;
     Ok(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_authorization_refuses_unoffered_paths() {
+        let r = Reclaimable::default();
+        r.offer("/projects/app/target");
+
+        // An offered path is authorized.
+        assert!(r
+            .first_unoffered(&["/projects/app/target".to_string()])
+            .is_none());
+
+        // An arbitrary path the scan never surfaced is caught.
+        assert_eq!(
+            r.first_unoffered(&["/etc/passwd".to_string()]),
+            Some("/etc/passwd")
+        );
+
+        // A mix is rejected on the first unoffered entry.
+        assert!(r
+            .first_unoffered(&[
+                "/projects/app/target".to_string(),
+                "/somewhere/else".to_string(),
+            ])
+            .is_some());
+
+        // A fresh scan resets the grant.
+        r.reset();
+        assert_eq!(
+            r.first_unoffered(&["/projects/app/target".to_string()]),
+            Some("/projects/app/target")
+        );
+    }
 }

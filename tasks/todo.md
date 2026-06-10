@@ -387,6 +387,53 @@ loose artifacts stay handled by the existing globs, exactly as before).
 
 ---
 
+# Todo — Enterprise-grade hardening (Tier 0 → Tier 3)
+
+## Goal
+Take Prun from "well-architected small app" to enterprise grade: close the one
+real security hole, build the missing engineering scaffolding (CI, logging,
+tests, licensing), fix the correctness limitations, and lay distribution
+groundwork — all WITHOUT a framework rewrite or trait ceremony that would hurt
+the junior-readable simplicity. Branch: `feat/enterprise-grade-tier0-3`.
+
+## Tier 0 — Security & legal (close the critical hole) ✅
+- [x] `esc()` the category label in `main.ts` (XSS sink at the sidebar)
+- [x] Real Content-Security-Policy in `tauri.conf.json` (was `csp: null`)
+- [x] Validate ecosystem ids `[a-z0-9_-]+` (and rule/junk/cache id charset) in `validate_rules`
+- [x] Confine `clean` to paths a scan actually emitted (`Reclaimable` managed state; refuses unoffered paths)
+- [x] LICENSE (MIT) + `license` field in Cargo.toml / package.json
+- Verify: cargo test **31/31**, clippy -D warnings clean, tsc + vite build clean
+
+## Tier 1 — Engineering infrastructure
+- [ ] GitHub Actions CI: cargo fmt/clippy/test + tsc + vite build, on push/PR
+- [ ] `cargo audit` + `npm audit` job in CI
+- [ ] `tracing` + rotating file log in OS data dir; replace the lone `eprintln!`
+- [ ] Vitest on the pure frontend logic (format/grouping/rollup)
+
+## Tier 2 — Correctness & robustness
+- [ ] Scan cancellation: AtomicBool in managed state + `cancel_scan` command; walk + sizing check it
+- [ ] Surface skipped/errored paths (don't silently swallow FS/git errors); report a count in `Done`
+- [ ] Honest age: deep newest-mtime folded into the size walk (one pass)
+- [ ] Size semantics: dedup hard links + document apparent-vs-on-disk
+- [ ] Split `main.ts` pure logic into `format.ts` / `grouping.ts` (enables Vitest, SRP)
+
+## Tier 3 — Distribution groundwork
+- [ ] Headless `prun` CLI over the pure core (scan/clean/rules) — bonus test surface
+- [ ] `tauri-plugin-updater` wired + signed-update scaffolding (keys are user-supplied)
+- [ ] Code-signing CI scaffolding (Win + macOS; certs are user secrets) + docs
+- [ ] CHANGELOG.md + SemVer discipline; bump to a real version
+
+## Constraints (keep the simplicity)
+- No frontend framework; no single-impl `Scanner`/`RuleSource` traits (seams already test fine)
+- No async runtime for the CPU/IO-bound walk; keep `spawn_blocking`
+- Public `#[command]` surface stays compatible; behavior changes only where listed
+- Each tier: `cargo test` + `clippy -D warnings` + `tsc` + `vite build` green before commit
+
+## Progress / Review
+(filled in as each tier lands)
+
+---
+
 # Todo — Override: merge built-ins by id (stop shadowing built-in updates)
 
 ## Goal

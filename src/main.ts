@@ -380,7 +380,7 @@ function render() {
     li.innerHTML = `
       <input class="cb" type="checkbox" ${state.catsOn.size === 0 || state.catsOn.has(cat.id) ? "checked" : ""}>
       <span class="dot" style="background:${categoryColor(cat.id)}"></span>
-      <span class="cat__name">${cat.label}</span>
+      <span class="cat__name">${esc(cat.label)}</span>
       <span class="cat__size">${fmtSize(cat.size)}</span>`;
     const cb = li.querySelector<HTMLInputElement>(".cb")!;
     cb.addEventListener("change", () => {

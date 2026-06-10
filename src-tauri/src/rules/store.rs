@@ -278,6 +278,11 @@ fn validate_rules(rf: &RuleFile) -> Result<(), String> {
         if id.trim().is_empty() {
             return Err(format!("a {kind} entry has an empty id"));
         }
+        if !is_safe_token(id) {
+            return Err(format!(
+                "{kind} id \"{id}\" must use only lowercase letters, digits, '-' or '_'"
+            ));
+        }
         if !seen.insert(format!("{kind}:{id}")) {
             return Err(format!("duplicate {kind} id: {id}"));
         }
@@ -285,22 +290,38 @@ fn validate_rules(rf: &RuleFile) -> Result<(), String> {
     };
     for r in &rf.rules {
         check_id("rule", &r.id)?;
-        if r.ecosystem.trim().is_empty() {
-            return Err(format!("rule \"{}\" has an empty ecosystem", r.id));
-        }
+        check_ecosystem("rule", &r.id, &r.ecosystem)?;
         check_globs(&r.id, &r.markers)?;
         check_globs(&r.id, &r.anti_markers)?;
         check_globs(&r.id, &r.globs)?;
     }
     for j in &rf.junk {
         check_id("junk", &j.id)?;
-        if j.ecosystem.trim().is_empty() {
-            return Err(format!("junk \"{}\" has an empty ecosystem", j.id));
-        }
+        check_ecosystem("junk", &j.id, &j.ecosystem)?;
         check_globs(&j.id, &j.globs)?;
     }
     for c in &rf.global_cache {
         check_id("cache", &c.id)?;
+        check_ecosystem("cache", &c.id, &c.ecosystem)?;
+    }
+    Ok(())
+}
+
+/// A safe identifier token: lowercase ASCII letters, digits, `-`, `_`, non-empty.
+/// Rule/junk/cache ids and ecosystem ids flow into UI labels and grouping keys, so
+/// constraining them to this charset means a saved ruleset can never smuggle markup
+/// into the sidebar (defense in depth behind the frontend's own escaping).
+fn is_safe_token(s: &str) -> bool {
+    !s.is_empty()
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+fn check_ecosystem(kind: &str, id: &str, ecosystem: &str) -> Result<(), String> {
+    if !is_safe_token(ecosystem) {
+        return Err(format!(
+            "{kind} \"{id}\" ecosystem \"{ecosystem}\" must use only lowercase letters, digits, '-' or '_'"
+        ));
     }
     Ok(())
 }
@@ -440,6 +461,15 @@ mod tests {
         let mut bad_glob = base.clone();
         bad_glob.rules[0].globs.push("[".to_string());
         assert!(validate_rules(&bad_glob).is_err(), "unbuildable glob");
+
+        // Charset guard: an ecosystem carrying markup (the old XSS vector) is refused.
+        let mut markup_eco = base.clone();
+        markup_eco.rules[0].ecosystem = "x<img src=x onerror=alert(1)>".to_string();
+        assert!(validate_rules(&markup_eco).is_err(), "markup in ecosystem must be rejected");
+
+        let mut upper_id = base.clone();
+        upper_id.rules[0].id = "Rust Cargo".to_string();
+        assert!(validate_rules(&upper_id).is_err(), "spaces/uppercase in id must be rejected");
     }
 
     #[test]
