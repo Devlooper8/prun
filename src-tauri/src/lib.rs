@@ -6,8 +6,10 @@
 //! - [`rules`] — the ruleset model, matcher, override persistence, and labels.
 //! - [`fs_util`] — shared filesystem helpers.
 //! - [`commands`] — the thin Tauri command handlers exposed to the frontend.
+//! - [`cli`] — a headless CLI over the same core, for scripting and GUI-free tests.
 
 mod clean;
+pub mod cli;
 mod commands;
 mod fs_util;
 mod rules;
