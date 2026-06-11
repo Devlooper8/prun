@@ -157,6 +157,41 @@ mod tests {
         }
     }
 
+    /// One side of the wire-contract triangle (see src/wire-contract.test.ts):
+    /// pins `fixture == serde's actual serialization` for CleanEvent.
+    #[test]
+    fn clean_event_fixture_matches_serialization() {
+        let events = vec![
+            CleanEvent::Removing {
+                path: "/projects/app/target".into(),
+                done: 0,
+                total: 2,
+            },
+            CleanEvent::Removed {
+                path: "/projects/app/target".into(),
+                done: 1,
+                total: 2,
+            },
+            CleanEvent::Failed {
+                path: "/projects/web/node_modules".into(),
+                error: "in use".into(),
+                done: 2,
+                total: 2,
+            },
+            CleanEvent::Done {
+                removed: 1,
+                failed: 1,
+            },
+        ];
+        let ours = serde_json::to_value(&events).unwrap();
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../fixtures/clean-events.json")).unwrap();
+        assert_eq!(
+            ours, fixture,
+            "fixtures/clean-events.json must match the Rust wire format"
+        );
+    }
+
     /// Windows: cleaning a junction removes the LINK itself, never the target's
     /// contents — a junction inside an artifact tree must not nuke what it
     /// points at (see SECURITY.md scope).

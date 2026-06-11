@@ -1,0 +1,25 @@
+[
+  { "kind": "discovering", "scanned": 480 },
+  { "kind": "discovered", "total": 2 },
+  {
+    "kind": "located",
+    "location": {
+      "path": "/projects/app/target",
+      "project": "app",
+      "artifact": "/target",
+      "category": "rust",
+      "size": 6600000000,
+      "age_secs": 1728000,
+      "git_ignored": true
+    },
+    "done": 1,
+    "total": 2
+  },
+  {
+    "kind": "done",
+    "root": "/projects",
+    "categories": [{ "id": "rust", "label": "Rust", "size": 6600000000 }],
+    "errors": 1,
+    "error_samples": ["/projects/app/target/locked.bin: access denied"]
+  }
+]

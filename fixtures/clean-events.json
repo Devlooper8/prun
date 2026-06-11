@@ -1,0 +1,12 @@
+[
+  { "kind": "removing", "path": "/projects/app/target", "done": 0, "total": 2 },
+  { "kind": "removed", "path": "/projects/app/target", "done": 1, "total": 2 },
+  {
+    "kind": "failed",
+    "path": "/projects/web/node_modules",
+    "error": "in use",
+    "done": 2,
+    "total": 2
+  },
+  { "kind": "done", "removed": 1, "failed": 1 }
+]

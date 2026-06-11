@@ -146,4 +146,46 @@ mod tests {
         }
         assert_eq!(samples.into_inner().unwrap().len(), ERROR_SAMPLE_CAP);
     }
+
+    /// One side of the wire-contract triangle (see src/wire-contract.test.ts):
+    /// this pins `fixture == serde's actual serialization`; the Vitest side
+    /// pins `fixture == types.ts`. Change the wire format → update the fixture
+    /// and both tests together.
+    #[test]
+    fn scan_event_fixture_matches_serialization() {
+        let events = vec![
+            ScanEvent::Discovering { scanned: 480 },
+            ScanEvent::Discovered { total: 2 },
+            ScanEvent::Located {
+                location: Location {
+                    path: "/projects/app/target".into(),
+                    project: "app".into(),
+                    artifact: "/target".into(),
+                    category: "rust".into(),
+                    size: 6_600_000_000,
+                    age_secs: 1_728_000,
+                    git_ignored: true,
+                },
+                done: 1,
+                total: 2,
+            },
+            ScanEvent::Done {
+                root: "/projects".into(),
+                categories: vec![Category {
+                    id: "rust".into(),
+                    label: "Rust".into(),
+                    size: 6_600_000_000,
+                }],
+                errors: 1,
+                error_samples: vec!["/projects/app/target/locked.bin: access denied".into()],
+            },
+        ];
+        let ours = serde_json::to_value(&events).unwrap();
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../fixtures/scan-events.json")).unwrap();
+        assert_eq!(
+            ours, fixture,
+            "fixtures/scan-events.json must match the Rust wire format"
+        );
+    }
 }
