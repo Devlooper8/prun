@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtSize, esc, shortPath } from "./format";
+import { fmtSize, esc, shortPath, truncate } from "./format";
 
 describe("fmtSize", () => {
   it("scales bytes through B / KB / MB / GB", () => {
@@ -26,5 +26,14 @@ describe("shortPath", () => {
   it("keeps the last two segments across separator styles", () => {
     expect(shortPath("/home/me/projects/space-sim/target")).toBe("space-sim/target");
     expect(shortPath("C:\\Users\\me\\app\\node_modules")).toBe("app/node_modules");
+  });
+});
+
+describe("truncate", () => {
+  it("leaves short strings alone and caps long ones with an ellipsis", () => {
+    expect(truncate("short", 10)).toBe("short");
+    expect(truncate("exactly-10", 10)).toBe("exactly-10");
+    expect(truncate("a-much-longer-string", 10)).toBe("a-much-lo…");
+    expect(truncate("a-much-longer-string", 10).length).toBe(10);
   });
 });

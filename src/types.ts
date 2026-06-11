@@ -112,7 +112,15 @@ export type ScanEvent =
   | { kind: "discovering"; scanned: number }
   | { kind: "discovered"; total: number }
   | { kind: "located"; location: Location; done: number; total: number }
-  | { kind: "done"; root: string; categories: Category[]; errors: number };
+  | {
+      kind: "done";
+      root: string;
+      categories: Category[];
+      /** how many entries couldn't be read while sizing (permissions, races) */
+      errors: number;
+      /** up to 5 concrete "path: reason" examples behind `errors` */
+      error_samples: string[];
+    };
 
 /**
  * Progress streamed from the backend `clean` command over a Tauri Channel.

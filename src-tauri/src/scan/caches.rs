@@ -5,6 +5,7 @@
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use rayon::prelude::*;
 
@@ -41,6 +42,7 @@ fn scan_caches_with(
 
     let done = AtomicUsize::new(0);
     let errors = AtomicU64::new(0);
+    let error_samples = Mutex::new(Vec::new());
     let mut locations: Vec<Location> = pending
         .par_iter()
         .filter_map(|(p, eco, name)| {
@@ -49,6 +51,9 @@ fn scan_caches_with(
             }
             let measured = measure_tree(p);
             errors.fetch_add(measured.errors, Ordering::Relaxed);
+            if let Some(sample) = &measured.first_error {
+                super::push_error_sample(&error_samples, sample);
+            }
             let location = Location {
                 path: p.to_string_lossy().into_owned(),
                 project: name.clone(),
@@ -69,10 +74,15 @@ fn scan_caches_with(
         .collect();
 
     locations.sort_by(|a, b| b.size.cmp(&a.size));
+    let error_samples = error_samples.into_inner().unwrap();
+    for sample in &error_samples {
+        tracing::warn!("unreadable during cache scan: {sample}");
+    }
     emit(ScanEvent::Done {
         root: "System caches".to_string(),
         categories: rollup(&locations),
         errors: errors.load(Ordering::Relaxed),
+        error_samples,
     });
     Ok(())
 }

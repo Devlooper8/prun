@@ -8,7 +8,7 @@ import {
   type Category,
   categoryColor,
 } from "./types";
-import { fmtSize, esc, shortPath } from "./format";
+import { fmtSize, esc, shortPath, truncate } from "./format";
 import {
   type ProjectGroup,
   subPathOf,
@@ -31,7 +31,7 @@ interface ScanHandlers {
   onDiscovering(scanned: number): void;
   onDiscovered(total: number): void;
   onLocated(location: Location, done: number, total: number): void;
-  onDone(root: string, categories: Category[], errors: number): void;
+  onDone(root: string, categories: Category[], errors: number, errorSamples: string[]): void;
 }
 
 /** Route one streamed Channel event to the handler set. */
@@ -40,7 +40,7 @@ function dispatch(h: ScanHandlers, ev: ScanEvent): void {
     case "discovering": h.onDiscovering(ev.scanned); break;
     case "discovered": h.onDiscovered(ev.total); break;
     case "located": h.onLocated(ev.location, ev.done, ev.total); break;
-    case "done": h.onDone(ev.root, ev.categories, ev.errors); break;
+    case "done": h.onDone(ev.root, ev.categories, ev.errors, ev.error_samples); break;
   }
 }
 
@@ -89,7 +89,7 @@ async function runScanCaches(handlers: ScanHandlers): Promise<void> {
 /** Browser-only: fake the streaming sequence from SAMPLE for UI preview. */
 async function simulateScan(h: ScanHandlers): Promise<void> {
   for (let i = 1; i <= 6; i++) {
-    if (browserScanCancelled) return h.onDone(SAMPLE.root, [], 0);
+    if (browserScanCancelled) return h.onDone(SAMPLE.root, [], 0, []);
     await delay(110);
     h.onDiscovering(i * 240);
   }
@@ -101,7 +101,7 @@ async function simulateScan(h: ScanHandlers): Promise<void> {
     await delay(140);
     h.onLocated(loc, ++done, locs.length);
   }
-  h.onDone(SAMPLE.root, SAMPLE.categories, 0);
+  h.onDone(SAMPLE.root, SAMPLE.categories, 0, []);
 }
 
 /** Browser-only preview of the system-caches view. */
@@ -113,7 +113,7 @@ async function simulateCaches(h: ScanHandlers): Promise<void> {
     { path: "~/.npm/_cacache", project: "npm cache", artifact: "/_cacache", category: "node", size: 1.2 * GB, age_secs: 60 * 86400, git_ignored: true },
   ];
   for (let i = 1; i <= 3; i++) {
-    if (browserScanCancelled) return h.onDone("System caches", [], 0);
+    if (browserScanCancelled) return h.onDone("System caches", [], 0, []);
     await delay(120);
     h.onDiscovering(i * 2);
   }
@@ -124,7 +124,7 @@ async function simulateCaches(h: ScanHandlers): Promise<void> {
     await delay(160);
     h.onLocated(c, ++done, caches.length);
   }
-  h.onDone("System caches", rollupCategories(caches), 0);
+  h.onDone("System caches", rollupCategories(caches), 0, []);
 }
 
 /** Callbacks the clean drives as per-path results stream in. */
@@ -252,12 +252,19 @@ const viewRules = $<HTMLElement>("#view-rules");
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Toast text after a scan: the count, plus an unreadable-items note when the
- *  backend couldn't fully read some paths (so a wrong total isn't shown as final). */
-function scanSummary(count: number, errors: number, noun = "location"): string {
+ *  backend couldn't fully read some paths (so a wrong total isn't shown as final).
+ *  The first concrete example is appended so "unreadable" is actionable; the full
+ *  sample list goes to the console and the backend log. */
+function scanSummary(
+  count: number,
+  errors: number,
+  noun = "location",
+  errorSamples: string[] = []
+): string {
   const base = `Found ${count} ${noun}${count === 1 ? "" : "s"}`;
-  return errors > 0
-    ? `${base} · ${errors} item${errors === 1 ? "" : "s"} unreadable`
-    : base;
+  if (errors === 0) return base;
+  const example = errorSamples.length > 0 ? ` — e.g. ${truncate(errorSamples[0], 80)}` : "";
+  return `${base} · ${errors} item${errors === 1 ? "" : "s"} unreadable${example}`;
 }
 
 /** Locations passing the current category/age/git filters (biggest first). Thin
@@ -514,6 +521,7 @@ async function doScan() {
   state.failed.clear();
   let maxDone = 0;
   let scanErrors = 0;
+  let scanErrorSamples: string[] = [];
 
   showScanbar(opts.root);
   render();
@@ -533,10 +541,11 @@ async function doScan() {
         scanSizing(maxDone / total);
         scheduleRender();
       },
-      onDone(root, categories, errors) {
+      onDone(root, categories, errors, errorSamples) {
         state.result!.root = root;
         state.result!.categories = categories;
         scanErrors = errors;
+        scanErrorSamples = errorSamples;
       },
     });
 
@@ -544,7 +553,9 @@ async function doScan() {
     state.selected = new Set(visibleLocations().map((l) => l.path));
     hideScanbar();
     render();
-    toast(scanSummary(state.result.locations.length, scanErrors));
+    if (scanErrorSamples.length > 0)
+      console.warn("unreadable during scan:", scanErrorSamples);
+    toast(scanSummary(state.result.locations.length, scanErrors, "location", scanErrorSamples));
   } catch (err) {
     hideScanbar();
     render();
@@ -572,6 +583,7 @@ async function doScanCaches() {
   state.failed.clear();
   let maxDone = 0;
   let cacheErrors = 0;
+  let cacheErrorSamples: string[] = [];
 
   showScanbar("System caches");
   render();
@@ -591,16 +603,21 @@ async function doScanCaches() {
         scanSizing(maxDone / total);
         scheduleRender();
       },
-      onDone(root, categories, errors) {
+      onDone(root, categories, errors, errorSamples) {
         state.result!.root = root;
         state.result!.categories = categories;
         cacheErrors = errors;
+        cacheErrorSamples = errorSamples;
       },
     });
 
     hideScanbar();
     render();
-    toast(scanSummary(state.result.locations.length, cacheErrors, "system cache"));
+    if (cacheErrorSamples.length > 0)
+      console.warn("unreadable during cache scan:", cacheErrorSamples);
+    toast(
+      scanSummary(state.result.locations.length, cacheErrors, "system cache", cacheErrorSamples)
+    );
   } catch (err) {
     hideScanbar();
     render();

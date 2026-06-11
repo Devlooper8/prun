@@ -89,48 +89,62 @@ fn cmd_scan(args: &[String], out: &mut dyn Write) -> ExitCode {
         skip_git_tracked: !all,
         respect_prunignore: true,
     };
-    let (locations, errors, result) = collect_scan(|emit| {
+    let collected = collect_scan(|emit| {
         let cancel = AtomicBool::new(false);
         scan(&opts, &cancel, emit)
     });
-    finish_scan(out, "scan", locations, errors, result, json)
+    finish_scan(out, "scan", collected, json)
 }
 
 fn cmd_caches(args: &[String], out: &mut dyn Write) -> ExitCode {
     let json = has_flag(args, "--json");
-    let (locations, errors, result) = collect_scan(|emit| {
+    let collected = collect_scan(|emit| {
         let cancel = AtomicBool::new(false);
         scan_caches(&cancel, emit)
     });
-    finish_scan(out, "caches", locations, errors, result, json)
+    finish_scan(out, "caches", collected, json)
 }
 
-/// Run a streaming scan, collecting its located paths + error count.
-fn collect_scan(
-    run: impl FnOnce(&(dyn Fn(ScanEvent) + Sync)) -> Result<(), String>,
-) -> (Vec<Location>, u64, Result<(), String>) {
+/// Everything a buffered (non-streaming) CLI scan needs from the event stream.
+struct Collected {
+    locations: Vec<Location>,
+    errors: u64,
+    error_samples: Vec<String>,
+    result: Result<(), String>,
+}
+
+/// Run a streaming scan, collecting its located paths + error reporting.
+fn collect_scan(run: impl FnOnce(&(dyn Fn(ScanEvent) + Sync)) -> Result<(), String>) -> Collected {
     let found: Mutex<Vec<Location>> = Mutex::new(Vec::new());
     let errors = AtomicU64::new(0);
+    let samples: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let result = run(&|ev| match ev {
         ScanEvent::Located { location, .. } => found.lock().unwrap().push(location),
-        ScanEvent::Done { errors: e, .. } => errors.store(e, Ordering::Relaxed),
+        ScanEvent::Done {
+            errors: e,
+            error_samples,
+            ..
+        } => {
+            errors.store(e, Ordering::Relaxed);
+            *samples.lock().unwrap() = error_samples;
+        }
         _ => {}
     });
-    (
-        found.into_inner().unwrap(),
-        errors.load(Ordering::Relaxed),
+    Collected {
+        locations: found.into_inner().unwrap(),
+        errors: errors.load(Ordering::Relaxed),
+        error_samples: samples.into_inner().unwrap(),
         result,
-    )
+    }
 }
 
-fn finish_scan(
-    out: &mut dyn Write,
-    what: &str,
-    mut locations: Vec<Location>,
-    errors: u64,
-    result: Result<(), String>,
-    json: bool,
-) -> ExitCode {
+fn finish_scan(out: &mut dyn Write, what: &str, collected: Collected, json: bool) -> ExitCode {
+    let Collected {
+        mut locations,
+        errors,
+        error_samples,
+        result,
+    } = collected;
     if let Err(e) = result {
         let _ = writeln!(out, "error: {e}");
         return ExitCode::FAILURE;
@@ -141,6 +155,7 @@ fn finish_scan(
         let payload = serde_json::json!({
             "kind": what,
             "errors": errors,
+            "error_samples": error_samples,
             "locations": locations,
         });
         let _ = writeln!(
@@ -171,6 +186,9 @@ fn finish_scan(
         summary.push_str(&format!(" ({errors} unreadable)"));
     }
     let _ = writeln!(out, "{summary}");
+    for sample in &error_samples {
+        let _ = writeln!(out, "  unreadable: {sample}");
+    }
     ExitCode::SUCCESS
 }
 
@@ -377,6 +395,10 @@ mod tests {
         assert!(
             json.contains("\"category\": \"rust\""),
             "json carries category; got {json}"
+        );
+        assert!(
+            json.contains("\"error_samples\""),
+            "json carries error samples; got {json}"
         );
 
         let _ = std::fs::remove_dir_all(&root);

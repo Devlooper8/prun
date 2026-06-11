@@ -24,3 +24,8 @@ export function shortPath(path: string): string {
   const parts = path.split(/[\\/]+/).filter(Boolean);
   return parts.slice(-2).join("/") || path;
 }
+
+/** Cap a string at `max` characters, marking the cut with an ellipsis. */
+export function truncate(s: string, max: number): string {
+  return s.length <= max ? s : `${s.slice(0, Math.max(0, max - 1))}…`;
+}

@@ -165,6 +165,7 @@ fn scan_with(
     let min_age_secs = opts.min_age_days.map(|d| d * 86_400);
     let done = AtomicUsize::new(0);
     let errors = AtomicU64::new(0);
+    let error_samples = Mutex::new(Vec::new());
     let mut locations: Vec<Location> = pending
         .par_iter()
         .filter_map(|p| {
@@ -173,6 +174,9 @@ fn scan_with(
             }
             let measured = measure_tree(&p.path);
             errors.fetch_add(measured.errors, Ordering::Relaxed);
+            if let Some(sample) = &measured.first_error {
+                super::push_error_sample(&error_samples, sample);
+            }
             let n = done.fetch_add(1, Ordering::Relaxed) + 1;
             let age_secs = now.saturating_sub(measured.newest_mtime);
             if min_age_secs.is_some_and(|min| age_secs < min) {
@@ -197,10 +201,15 @@ fn scan_with(
         .collect();
 
     locations.sort_by(|a, b| b.size.cmp(&a.size));
+    let error_samples = error_samples.into_inner().unwrap();
+    for sample in &error_samples {
+        tracing::warn!("unreadable during scan: {sample}");
+    }
     emit(ScanEvent::Done {
         root: root.to_string_lossy().into_owned(),
         categories: rollup(&locations),
         errors: errors.load(Ordering::Relaxed),
+        error_samples,
     });
     Ok(())
 }

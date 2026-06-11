@@ -9,6 +9,7 @@
 //! root become reclaim candidates.
 
 use std::collections::HashMap;
+use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
@@ -67,12 +68,28 @@ pub enum ScanEvent {
     },
     /// Scan complete, with the final category roll-up. `errors` is how many entries
     /// couldn't be read while sizing (permissions, races) — surfaced so a wrong total
-    /// doesn't masquerade as authoritative.
+    /// doesn't masquerade as authoritative. `error_samples` carries up to
+    /// [`ERROR_SAMPLE_CAP`] concrete "path: reason" examples so the user can tell
+    /// *what* was skipped, not just how much.
     Done {
         root: String,
         categories: Vec<Category>,
         errors: u64,
+        error_samples: Vec<String>,
     },
+}
+
+/// How many concrete read-error examples a scan reports (the count in
+/// `Done.errors` still reflects everything).
+pub(crate) const ERROR_SAMPLE_CAP: usize = 5;
+
+/// Record one read-error example into the capped list — the first
+/// [`ERROR_SAMPLE_CAP`] win. Shared by the parallel sizing loops, hence the Mutex.
+pub(crate) fn push_error_sample(samples: &Mutex<Vec<String>>, sample: &str) {
+    let mut s = samples.lock().unwrap();
+    if s.len() < ERROR_SAMPLE_CAP {
+        s.push(sample.to_string());
+    }
 }
 
 /// Sum location sizes per ecosystem into the category roll-up shown beside the
@@ -92,4 +109,41 @@ fn rollup(locations: &[Location]) -> Vec<Category> {
         .collect();
     categories.sort_by(|a, b| b.size.cmp(&a.size));
     categories
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The frontend's `types.ts` mirrors this wire shape by hand — pin the field
+    /// names the UI relies on so a rename here fails a test instead of silently
+    /// `undefined`-ing a TS field.
+    #[test]
+    fn done_event_wire_shape_is_stable() {
+        let ev = ScanEvent::Done {
+            root: "/projects".into(),
+            categories: vec![],
+            errors: 2,
+            error_samples: vec!["/projects/x: denied".into()],
+        };
+        let json = serde_json::to_string(&ev).unwrap();
+        for key in [
+            "\"kind\":\"done\"",
+            "\"root\"",
+            "\"categories\"",
+            "\"errors\"",
+            "\"error_samples\"",
+        ] {
+            assert!(json.contains(key), "missing {key} in {json}");
+        }
+    }
+
+    #[test]
+    fn error_samples_are_capped() {
+        let samples = Mutex::new(Vec::new());
+        for i in 0..(ERROR_SAMPLE_CAP + 3) {
+            push_error_sample(&samples, &format!("path-{i}: denied"));
+        }
+        assert_eq!(samples.into_inner().unwrap().len(), ERROR_SAMPLE_CAP);
+    }
 }

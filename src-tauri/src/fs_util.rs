@@ -52,7 +52,7 @@ pub(crate) fn parent_name(p: &Path) -> String {
 }
 
 /// The result of walking one artifact tree in a single pass.
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone)]
 pub(crate) struct Measured {
     /// Apparent size in bytes (sum of file lengths). On Unix, a file reachable by
     /// several hard links is counted once. NOTE: this is the logical size, not the
@@ -66,6 +66,10 @@ pub(crate) struct Measured {
     /// Count of entries that couldn't be read/stat'd (permissions, races). Surfaced
     /// rather than silently dropped, so a wrong total doesn't look authoritative.
     pub errors: u64,
+    /// The first read error, as "path: reason" (walkdir's Display includes both) —
+    /// one concrete example per tree, so the scan summary can say *what* was
+    /// skipped instead of only how many.
+    pub first_error: Option<String>,
 }
 
 /// Walk `path` once, accumulating size, the newest mtime, and a read-error count.
@@ -83,8 +87,9 @@ pub(crate) fn measure_tree(path: &Path) -> Measured {
     for entry in WalkDir::new(path).follow_links(false) {
         let entry = match entry {
             Ok(e) => e,
-            Err(_) => {
+            Err(e) => {
                 m.errors += 1;
+                m.first_error.get_or_insert_with(|| e.to_string());
                 continue;
             }
         };
@@ -95,8 +100,9 @@ pub(crate) fn measure_tree(path: &Path) -> Measured {
         }
         let meta = match entry.metadata() {
             Ok(meta) => meta,
-            Err(_) => {
+            Err(e) => {
                 m.errors += 1;
+                m.first_error.get_or_insert_with(|| e.to_string());
                 continue;
             }
         };
