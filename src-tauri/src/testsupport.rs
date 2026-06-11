@@ -25,3 +25,22 @@ pub(crate) fn touch(p: &Path) {
 pub(crate) fn mkdir(p: &Path) {
     fs::create_dir_all(p).unwrap();
 }
+
+/// Windows-only: create an NTFS junction at `link` pointing at `target`.
+/// Junctions, unlike symlinks, need no special privileges to create.
+#[cfg(windows)]
+pub(crate) fn junction(link: &Path, target: &Path) {
+    use std::os::windows::process::CommandExt;
+    let status = std::process::Command::new("cmd")
+        // raw_arg: cmd.exe re-parses its command line, so hand it one
+        // pre-quoted string instead of letting std re-quote each arg.
+        .raw_arg(format!(
+            r#"/C mklink /J "{}" "{}""#,
+            link.display(),
+            target.display()
+        ))
+        .stdout(std::process::Stdio::null())
+        .status()
+        .expect("cmd mklink runs");
+    assert!(status.success(), "junction creation failed");
+}

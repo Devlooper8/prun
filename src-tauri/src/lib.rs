@@ -38,6 +38,9 @@ pub fn run() {
         .manage(commands::Reclaimable::default())
         // Shared cancel flag so the UI can stop a long-running scan.
         .manage(commands::Cancel::default())
+        // One scan at a time: Reclaimable/Cancel are app-global, so overlapping
+        // scans (e.g. a second window) would corrupt each other's state.
+        .manage(commands::ScanLock::default())
         .invoke_handler(tauri::generate_handler![
             commands::scan,
             commands::scan_caches,

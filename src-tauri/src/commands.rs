@@ -64,6 +64,35 @@ impl Cancel {
     }
 }
 
+/// Serializes scans at the backend: only one scan (project or caches) runs at a
+/// time. The UI already guards with its own `state.scanning`, but `Reclaimable`
+/// and `Cancel` are app-global — a second window (or any future caller) starting
+/// a scan mid-flight would reset the first scan's offers and interleave two
+/// event streams. The backend is where that invariant must actually hold.
+#[derive(Default, Clone)]
+pub struct ScanLock(Arc<AtomicBool>);
+
+impl ScanLock {
+    /// Claim the running slot, or `None` while another scan holds it. The
+    /// returned guard releases the slot when dropped — on every exit path of
+    /// the scan (success, error, panic), so a failed scan can't wedge the app.
+    fn acquire(&self) -> Option<ScanRunning> {
+        if self.0.swap(true, Ordering::SeqCst) {
+            return None; // already running
+        }
+        Some(ScanRunning(self.0.clone()))
+    }
+}
+
+/// RAII guard for [`ScanLock`]: releases the slot on drop.
+struct ScanRunning(Arc<AtomicBool>);
+
+impl Drop for ScanRunning {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Walk the root and stream progress + each reclaimable dir to the UI as it is
 /// discovered and sized. Results arrive over `on_event` rather than as a single
 /// return value, so the window stays responsive on huge trees.
@@ -73,7 +102,13 @@ pub async fn scan(
     on_event: Channel<ScanEvent>,
     reclaimable: State<'_, Reclaimable>,
     cancel: State<'_, Cancel>,
+    lock: State<'_, ScanLock>,
 ) -> Result<(), String> {
+    // Refuse to overlap a running scan BEFORE touching shared state, so a
+    // rejected scan never clears what the in-flight one has offered.
+    let Some(running) = lock.acquire() else {
+        return Err("a scan is already running — cancel it or wait for it to finish".into());
+    };
     let offered = reclaimable.inner().clone();
     // A fresh scan replaces what the previous one offered.
     offered.reset();
@@ -81,6 +116,7 @@ pub async fn scan(
     let cancel = cancel.begin();
     // Filesystem walking is blocking; keep the UI thread free.
     tauri::async_runtime::spawn_blocking(move || {
+        let _running = running; // released when the blocking work ends, however it ends
         run_scan(&opts, &cancel, &move |event| {
             // Record each discovered path so a later `clean` can be authorized.
             if let ScanEvent::Located { location, .. } = &event {
@@ -102,11 +138,16 @@ pub async fn scan_caches(
     on_event: Channel<ScanEvent>,
     reclaimable: State<'_, Reclaimable>,
     cancel: State<'_, Cancel>,
+    lock: State<'_, ScanLock>,
 ) -> Result<(), String> {
+    let Some(running) = lock.acquire() else {
+        return Err("a scan is already running — cancel it or wait for it to finish".into());
+    };
     let offered = reclaimable.inner().clone();
     offered.reset(); // the caches view replaces what a project scan offered
     let cancel = cancel.begin();
     tauri::async_runtime::spawn_blocking(move || {
+        let _running = running;
         run_scan_caches(&cancel, &move |event| {
             if let ScanEvent::Located { location, .. } = &event {
                 offered.offer(&location.path);
@@ -238,6 +279,24 @@ mod tests {
         assert_eq!(
             r.first_unoffered(&["/projects/app/target".to_string()]),
             Some("/projects/app/target")
+        );
+    }
+
+    #[test]
+    fn scan_lock_serializes_and_releases_on_drop() {
+        let lock = ScanLock::default();
+
+        let first = lock.acquire();
+        assert!(first.is_some(), "free lock must be acquirable");
+        assert!(
+            lock.acquire().is_none(),
+            "a second scan must be refused while one runs"
+        );
+
+        drop(first);
+        assert!(
+            lock.acquire().is_some(),
+            "the slot frees again when the running scan's guard drops"
         );
     }
 }

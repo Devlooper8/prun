@@ -493,6 +493,30 @@ mod tests {
         );
     }
 
+    /// Windows: an NTFS junction inside the scanned root must not be traversed —
+    /// otherwise artifacts physically *outside* the root would be offered (and
+    /// could then be cleaned) through the junction path. Pins the walker
+    /// behavior the security model relies on (see SECURITY.md scope).
+    #[cfg(windows)]
+    #[test]
+    fn junction_inside_root_is_not_traversed() {
+        let base = fresh_tmp("junction_scan");
+        let outside = base.join("outside");
+        touch(&outside.join("realproj").join("Cargo.toml"));
+        touch(&outside.join("realproj").join("target").join("blob"));
+
+        let root = base.join("root");
+        mkdir(&root);
+        crate::testsupport::junction(&root.join("jump"), &outside);
+
+        let arts = run(&embedded(), &root);
+        let _ = fs::remove_dir_all(&base);
+        assert!(
+            arts.is_empty(),
+            "nothing behind a junction may be offered; got {arts:?}"
+        );
+    }
+
     #[test]
     fn emits_discovered_then_done() {
         let root = fresh_tmp("events");

@@ -199,4 +199,24 @@ mod tests {
             "an empty dir still has its own mtime as a floor"
         );
     }
+
+    /// Windows: sizing must not follow an NTFS junction — the reported size
+    /// would otherwise include (arbitrarily large) trees outside the artifact.
+    #[cfg(windows)]
+    #[test]
+    fn measure_tree_does_not_follow_junctions() {
+        let root = fresh_tmp("measure_junction");
+        let outside = root.join("outside");
+        touch(&outside.join("big.bin")); // 1 byte
+        let tree = root.join("tree");
+        touch(&tree.join("mine.bin")); // 1 byte
+        crate::testsupport::junction(&tree.join("jump"), &outside);
+
+        let m = measure_tree(&tree);
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(
+            m.size, 1,
+            "only the tree's own file counts, not the junction target"
+        );
+    }
 }

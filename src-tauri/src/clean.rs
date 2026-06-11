@@ -156,4 +156,25 @@ mod tests {
             _ => panic!("Done must be the final event"),
         }
     }
+
+    /// Windows: cleaning a junction removes the LINK itself, never the target's
+    /// contents — a junction inside an artifact tree must not nuke what it
+    /// points at (see SECURITY.md scope).
+    #[cfg(windows)]
+    #[test]
+    fn cleaning_a_junction_removes_link_not_target() {
+        let root = fresh_tmp("clean_junction");
+        let target = root.join("real");
+        touch(&target.join("keep.txt"));
+        let link = root.join("link");
+        crate::testsupport::junction(&link, &target);
+
+        clean(&[link.to_string_lossy().into_owned()], false, &|_| {}).unwrap();
+
+        let link_gone = fs::symlink_metadata(&link).is_err();
+        let kept = target.join("keep.txt").exists();
+        let _ = fs::remove_dir_all(&root);
+        assert!(link_gone, "the junction itself must be removed");
+        assert!(kept, "the junction's target contents must survive");
+    }
 }
