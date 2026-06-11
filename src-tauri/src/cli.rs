@@ -28,6 +28,7 @@ pub fn is_subcommand(arg: &str) -> bool {
             | "caches"
             | "rules"
             | "clean"
+            | "logs"
             | "help"
             | "--help"
             | "-h"
@@ -55,6 +56,7 @@ pub(crate) fn run_args(args: &[String], out: &mut dyn Write) -> ExitCode {
         "caches" => cmd_caches(rest, out),
         "rules" => cmd_rules(rest, out),
         "clean" => cmd_clean(rest, out),
+        "logs" => cmd_logs(out),
         "version" | "--version" | "-V" => {
             let _ = writeln!(out, "prun {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -247,6 +249,21 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
     }
 }
 
+/// Print where the log files and crash reports live, so a bug report can say
+/// "run `prun logs` and attach what's there".
+fn cmd_logs(out: &mut dyn Write) -> ExitCode {
+    match crate::diagnostics::log_dir() {
+        Some(dir) => {
+            let _ = writeln!(out, "{}", dir.display());
+            ExitCode::SUCCESS
+        }
+        None => {
+            let _ = writeln!(out, "error: no data directory on this system");
+            ExitCode::FAILURE
+        }
+    }
+}
+
 fn print_help(out: &mut dyn Write) {
     let _ = write!(
         out,
@@ -261,6 +278,7 @@ USAGE:
   prun rules  [--json] show the active ruleset status
   prun clean PATH...   move PATHs to the Trash (recoverable)
                        --delete   remove permanently instead
+  prun logs            print the log / crash-report directory
   prun version
   prun help
 
@@ -376,5 +394,13 @@ mod tests {
         let (out, _) = run(&["rules"]);
         assert!(out.contains("rules file:"), "got {out}");
         assert!(out.contains("active:"), "got {out}");
+    }
+
+    #[test]
+    fn logs_prints_the_log_dir() {
+        let (out, code) = run(&["logs"]);
+        // Every CI/dev platform we run on has a data dir, so expect the path.
+        assert!(out.trim().ends_with("logs"), "prints the dir; got {out}");
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
     }
 }

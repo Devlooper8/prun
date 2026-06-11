@@ -405,6 +405,7 @@ body {
 .nav__item svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; flex: 0 0 auto; }
 .nav__item:hover { background: var(--bg-row-hover); color: var(--txt); }
 .nav__item.is-active { background: var(--accent-soft); color: #cfe0ff; }
+.nav__spacer { flex: 1; } /* pushes utility items (Logs) to the rail bottom */
 
 .main { flex: 1; min-width: 0; display: flex; }
 .view { flex: 1; min-width: 0; display: flex; flex-direction: column; }

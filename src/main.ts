@@ -192,6 +192,17 @@ async function pickFolder(): Promise<string | null> {
   return typeof sel === "string" ? sel : null;
 }
 
+/** Open the folder with log files and crash reports in the OS file manager.
+ *  Desktop only — the browser preview has no backend (and no logs). */
+async function openLogsDir(): Promise<void> {
+  if (!IS_TAURI) {
+    toast("Logs are available in the desktop app");
+    return;
+  }
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke<string>("open_logs_dir");
+}
+
 /* window controls (custom titlebar) */
 async function windowAction(action: "minimize" | "maximize" | "close") {
   if (!IS_TAURI) return;
@@ -750,10 +761,16 @@ function wire() {
 
   cleanBtn.addEventListener("click", doClean);
 
-  // top-level nav (left rail): Clean / Rules
-  document.querySelectorAll<HTMLButtonElement>(".nav__item").forEach((b) =>
+  // top-level nav (left rail): Clean / Rules. Scoped to [data-view] — the rail
+  // also holds action buttons (Logs) that share the style but switch no view.
+  document.querySelectorAll<HTMLButtonElement>(".nav__item[data-view]").forEach((b) =>
     b.addEventListener("click", () => setView(b.dataset.view as "clean" | "rules"))
   );
+
+  // open the log / crash-report folder
+  $("#open-logs").addEventListener("click", () => {
+    openLogsDir().catch((err) => toast(`Couldn't open logs: ${err}`));
+  });
 }
 
 /* ───────────────────────── Boot ──────────────────────────────── */

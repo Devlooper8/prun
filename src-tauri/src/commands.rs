@@ -194,6 +194,17 @@ pub fn open_rules_file() -> Result<String, String> {
     Ok(path)
 }
 
+/// Open the folder holding the log files and crash reports with the OS file
+/// manager, creating it first so this works on a fresh install. Returns the
+/// path so the UI can show it.
+#[tauri::command]
+pub fn open_logs_dir() -> Result<String, String> {
+    let dir = crate::diagnostics::log_dir().ok_or("no data directory on this system")?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    open::that_detached(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
