@@ -4,6 +4,13 @@ name: Release
 # a version tag is pushed (e.g. `git tag v0.2.0 && git push origin v0.2.0`).
 # Signing + updater secrets are optional: without them you still get working
 # (unsigned) installers. See RELEASING.md for the full secret list.
+#
+# Supply-chain extras (no secrets needed):
+#  - every bundle gets a build-provenance attestation, verifiable with
+#    `gh attestation verify <file> --repo <owner>/prun`
+#  - the ubuntu leg uploads a CycloneDX SBOM as a workflow artifact; attach it
+#    to the release when publishing the draft (RELEASING.md)
+# Actions are pinned to commit SHAs; Dependabot keeps the pins fresh.
 
 on:
   push:
@@ -13,6 +20,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write # build-provenance attestation (sigstore OIDC)
+  attestations: write
 
 jobs:
   release:
@@ -28,9 +37,9 @@ jobs:
             args: ""
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm
@@ -47,17 +56,18 @@ jobs:
             librsvg2-dev \
             libayatana-appindicator3-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
+          toolchain: stable
           targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: src-tauri
 
       - run: npm ci
 
-      - uses: tauri-apps/tauri-action@v0
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Updater signing — required only if you enable the updater (RELEASING.md).
@@ -77,3 +87,34 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          # Each platform leg matches only its own bundle types; `**` covers
+          # both target layouts (release/ and universal-apple-darwin/release/).
+          subject-path: |
+            src-tauri/target/**/release/bundle/**/*.msi
+            src-tauri/target/**/release/bundle/**/*-setup.exe
+            src-tauri/target/**/release/bundle/**/*.deb
+            src-tauri/target/**/release/bundle/**/*.rpm
+            src-tauri/target/**/release/bundle/**/*.AppImage
+            src-tauri/target/**/release/bundle/**/*.dmg
+
+      - name: Generate SBOM (CycloneDX)
+        if: matrix.platform == 'ubuntu-latest'
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          # Lockfile-driven (Cargo.lock + package-lock.json), so one leg is
+          # representative; platform-conditional deps differ only marginally.
+          path: .
+          format: cyclonedx-json
+          output-file: prun-${{ github.ref_name }}-sbom.cdx.json
+          upload-release-assets: false
+
+      - name: Upload SBOM artifact
+        if: matrix.platform == 'ubuntu-latest'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: prun-${{ github.ref_name }}-sbom
+          path: prun-${{ github.ref_name }}-sbom.cdx.json

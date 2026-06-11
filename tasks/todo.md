@@ -542,3 +542,44 @@ user edits/additions/removals are preserved. User chose this (vs a "sync" button
 - **The user's immediate file** was already patched with cmake-build; the merge makes
   that redundant going forward and will be compacted on their next editor save.
 
+---
+
+# Todo — Enterprise-grade Tier 4 → Tier 6
+
+## Goal
+Close the trust / diagnostics / robustness gaps from the architecture review.
+Everything machine-actionable is implemented; items that physically need the
+owner's accounts or money (certs, Apple ID, winget submission, updater keypair)
+are scaffolded to "add-secret-and-go" and listed under Deferred.
+Branch: `feat/enterprise-grade-tier4-6` (stacked on tier0-3).
+
+## Tier 4 — Trust & distribution (no-secrets items)
+- [ ] CI: macOS job (clippy + test); clippy added to the Windows job
+- [ ] CI + release: pin all third-party actions to commit SHAs (dtolnay pinned ⇒ explicit `toolchain: stable` input)
+- [ ] release.yml: CycloneDX SBOM (anchore/sbom-action, ubuntu leg) as workflow artifact
+- [ ] release.yml: build-provenance attestations for every bundle (actions/attest-build-provenance)
+- [ ] RELEASING.md: SBOM/attestation section + Azure Trusted Signing pointer
+- [ ] DEFERRED (owner-gated): Authenticode cert, Apple notarization, updater keypair, winget manifest
+
+## Tier 5 — Diagnostics & governance
+- [ ] Panic hook → crash file (message + backtrace) in the log dir; works under `panic = "abort"`; GUI + CLI
+- [ ] "Open logs" affordance: `open_logs_dir` command + nav-rail button; CLI `prun logs`
+- [ ] Per-path scan-error samples: `Measured` collects capped samples → `ScanEvent::Done.error_samples` → UI toast detail + CLI `--json`
+- [ ] Governance docs: SECURITY.md, CONTRIBUTING.md, .github/CODEOWNERS, issue + PR templates
+- [ ] ARCHITECTURE.md: module map, data flow, the load-bearing invariants
+
+## Tier 6 — Robustness & scale
+- [ ] Backend scan-in-flight guard (managed flag; concurrent scan rejected loudly; reset on all exits) + test
+- [ ] Junction safety (Windows): test that a junction inside the tree never offers/sizes its target; clean removes the link only; fix if the test exposes an escape
+- [ ] Frontend: extract `backend.ts` (every invoke/Channel + browser simulators); main.ts / rules-editor.ts consume it
+- [ ] DTO contract fixtures: committed JSON checked by a Rust serde test AND a Vitest type/shape test
+- [ ] Debounce the age input
+- [ ] eslint (typescript-eslint) + prettier (isolated format commit) + CI lint step
+- [ ] Vitest coverage (informational) in CI
+- [ ] E2E smoke: evaluate tauri-driver feasibility; implement if verifiable here, else scaffold + document honestly
+
+## Constraints (unchanged from Tier 0-3)
+- No framework, no single-impl trait ceremony, no async-runtime swap
+- Public `#[command]` surface stays compatible (additive only)
+- Each commit verified: cargo test + clippy -D warnings + fmt --check + tsc + vite build + vitest green
+

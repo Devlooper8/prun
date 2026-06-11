@@ -20,9 +20,30 @@ installers; users just see the OS "unknown publisher" warnings.
    ```
 4. The **Release** workflow (`.github/workflows/release.yml`) builds installers on
    macOS, Linux, and Windows and opens a **draft** GitHub Release with the
-   artifacts attached. Review it and publish.
+   artifacts attached. Review it, attach the SBOM (below), and publish.
 
 `workflow_dispatch` lets you run the same job manually for a dry run.
+
+## Provenance & SBOM (automatic, no secrets)
+
+Every release build also produces supply-chain evidence:
+
+- **Build provenance attestations** — each installer (msi / setup.exe / deb /
+  rpm / AppImage / dmg) is attested via GitHub's sigstore integration. Anyone
+  can verify a downloaded artifact really came from this repo's release
+  workflow:
+  ```bash
+  gh attestation verify prun_0.2.0_x64.msi --repo <owner>/prun
+  ```
+- **CycloneDX SBOM** — the ubuntu leg uploads
+  `prun-vX.Y.Z-sbom.cdx.json` as a *workflow artifact* (lockfile-driven, so one
+  platform is representative). When publishing the draft release, download it
+  from the workflow run and attach it to the release so it ships alongside the
+  installers.
+
+CI/release actions are pinned to commit SHAs; Dependabot's `github-actions`
+ecosystem keeps the pins current. When reviewing those PRs, check the diff is
+only a pin bump.
 
 ## Code signing
 
