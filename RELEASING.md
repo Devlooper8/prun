@@ -85,8 +85,10 @@ automatically.
 
 ## Auto-updates (optional)
 
-The updater plugin is already wired in `src-tauri/src/lib.rs`; it does nothing
-until you configure an endpoint and a signing key. To turn it on:
+The updater dependency is already wired in `src-tauri/src/lib.rs`, but the
+plugin only **registers when a `plugins.updater` block exists** in
+`tauri.conf.json` — the plugin hard-requires that config and would abort the
+app at boot without it. Adding the block below is what turns it on:
 
 1. **Generate an updater keypair** (local crypto, keep the private key safe):
    ```bash

@@ -633,6 +633,17 @@ prettier clean, tsc + vite build clean.
    watched. Replace `OWNER` placeholders (CODEOWNERS, SECURITY.md, issue
    config, CHANGELOG links) when the remote exists.
 
+**Post-review fix (user-reported): GUI panicked at boot.** `prun.exe` aborted
+with `PluginInitialization("updater", ... invalid type: null, expected struct
+Config)` — the Tier-3 "wired but inert" updater plugin actually *requires* a
+`plugins.updater` block in tauri.conf.json, which doesn't exist. Fixed by
+registering the plugin only when `context.config().plugins.0` contains the
+"updater" key (activation stays config-only; unconfigured builds boot).
+Verified by booting the binary: alive after 6s bare and 7s with the vite dev
+server, empty stderr; suite stays 50/50 + clippy/fmt clean. The new panic
+hook captured all three of the user's crashes as crash-*.txt — Tier 5
+validated on a real crash. Lesson recorded: compile-verified ≠ boot-verified.
+
 **E2E smoke — evaluated, deferred with rationale.** tauri-driver needs a
 platform WebDriver (msedgedriver matching the local WebView2; webkit2gtk-
 driver on Linux) plus a built app bundle, and its run is a real GUI session.

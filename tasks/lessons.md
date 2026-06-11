@@ -122,6 +122,24 @@ any multi-line/special-char message on Windows PowerShell.
 NOT `Set-Content -Encoding utf8` — PowerShell 5.1's utf8 writes a BOM and git
 puts U+FEFF at the start of the commit subject.
 
+## "Wired but inert" still runs at boot — compile-verified ≠ boot-verified
+Tier 3 registered `tauri-plugin-updater` as "inert until configured" and verified
+with `cargo build` + tests. But the plugin **parses its `plugins.updater` config
+section during startup** and tauri.conf.json had no such block → every GUI launch
+panicked at `Builder::run` (`PluginInitialization: invalid type: null, expected
+struct Config`). The crash shipped across two branches and was found by the user
+running `prun.exe`. **Fix:** register the plugin conditionally —
+`context.config().plugins.0.contains_key("updater")` — so activation is genuinely
+config-only and an unconfigured build boots. **Patterns:**
+- After adding/registering ANY plugin, the minimum verification is **booting the
+  binary** (a process-alive-after-N-seconds check catches init-time aborts that
+  no compile, clippy, or unit test can see).
+- "Inert" must mean *not registered*, not "registered and hoping the init path
+  tolerates missing config" — read what the plugin's init actually requires.
+- Silver lining that validated Tier 5: the panic hook captured all three of the
+  user's crashes as `crash-*.txt` with the exact error — the diagnosis came
+  straight from the user's own log dir.
+
 ## An ignore-file allowlist can silently match nothing — prove the tool sees files
 `.prettierignore` with `*` then `!src/**/*.ts` passed `--check` instantly — because
 it checked ZERO files: gitignore semantics can't re-include a file whose parent

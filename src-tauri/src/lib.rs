@@ -29,11 +29,19 @@ pub fn run() {
     let _log_guard = diagnostics::init_logging();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "prun starting");
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        // Auto-update support. Inert until an updater endpoint + signing pubkey are
-        // configured (see RELEASING.md); wiring it now keeps that a config-only step.
-        .plugin(tauri_plugin_updater::Builder::new().build())
+    let context = tauri::generate_context!();
+    // Auto-update support is opt-in BY CONFIG: tauri-plugin-updater requires a
+    // `plugins.updater` block (pubkey + endpoints, see RELEASING.md) and aborts
+    // the whole app at boot when the block is absent. Register the plugin only
+    // once that config exists — activation stays a config-only step, and an
+    // unconfigured build keeps booting.
+    let updater_configured = context.config().plugins.0.contains_key("updater");
+
+    let mut builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    if updater_configured {
+        builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+    }
+    builder
         // Tracks what the last scan offered, so `clean` can only delete vetted paths.
         .manage(commands::Reclaimable::default())
         // Shared cancel flag so the UI can stop a long-running scan.
@@ -53,6 +61,6 @@ pub fn run() {
             commands::save_rules,
             commands::reset_rules
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
