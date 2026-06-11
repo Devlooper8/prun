@@ -2,10 +2,7 @@ import "./styles.css";
 import {
   type ScanResult,
   type ScanOptions,
-  type ScanEvent,
-  type CleanEvent,
   type Location,
-  type Category,
   categoryColor,
 } from "./types";
 import { fmtSize, esc, shortPath, truncate } from "./format";
@@ -17,201 +14,16 @@ import {
   groupByProject,
   filterLocations,
 } from "./grouping";
+import {
+  runScan,
+  runScanCaches,
+  runClean,
+  cancelScan,
+  pickFolder,
+  windowAction,
+  openLogsDir,
+} from "./backend";
 import { enterRulesView } from "./rules-editor";
-
-/* ───────────────────────── Tauri bridge ─────────────────────────
- * When running inside the Tauri shell we call the real Rust scanner.
- * When opened in a plain browser (e.g. `vite` preview) we fall back to
- * the sample data so the UI is still fully explorable.
- * ----------------------------------------------------------------- */
-const IS_TAURI = "__TAURI_INTERNALS__" in window;
-
-/** Callbacks the scan drives as progress streams in. */
-interface ScanHandlers {
-  onDiscovering(scanned: number): void;
-  onDiscovered(total: number): void;
-  onLocated(location: Location, done: number, total: number): void;
-  onDone(root: string, categories: Category[], errors: number, errorSamples: string[]): void;
-}
-
-/** Route one streamed Channel event to the handler set. */
-function dispatch(h: ScanHandlers, ev: ScanEvent): void {
-  switch (ev.kind) {
-    case "discovering": h.onDiscovering(ev.scanned); break;
-    case "discovered": h.onDiscovered(ev.total); break;
-    case "located": h.onLocated(ev.location, ev.done, ev.total); break;
-    case "done": h.onDone(ev.root, ev.categories, ev.errors, ev.error_samples); break;
-  }
-}
-
-/** Browser-preview cancel flag (the Tauri path cancels via the backend command). */
-let browserScanCancelled = false;
-
-/** Ask the running scan to stop. In the Tauri shell this signals the backend; in
- *  a plain browser it flips a flag the simulate loops check. */
-async function cancelScan(): Promise<void> {
-  if (IS_TAURI) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("cancel_scan");
-    return;
-  }
-  browserScanCancelled = true;
-}
-
-/**
- * Run a project scan, dispatching streamed progress to `handlers`. In the Tauri
- * shell this opens a Channel to the Rust scanner; in a plain browser it replays
- * the sample data through the same handler sequence so the UI stays explorable.
- */
-async function runScan(opts: ScanOptions, handlers: ScanHandlers): Promise<void> {
-  if (IS_TAURI) {
-    const { invoke, Channel } = await import("@tauri-apps/api/core");
-    const channel = new Channel<ScanEvent>();
-    channel.onmessage = (ev) => dispatch(handlers, ev);
-    await invoke("scan", { opts, onEvent: channel });
-    return;
-  }
-  await simulateScan(handlers);
-}
-
-/** Scan the per-user system caches (the ruleset's [[global_cache]] entries). */
-async function runScanCaches(handlers: ScanHandlers): Promise<void> {
-  if (IS_TAURI) {
-    const { invoke, Channel } = await import("@tauri-apps/api/core");
-    const channel = new Channel<ScanEvent>();
-    channel.onmessage = (ev) => dispatch(handlers, ev);
-    await invoke("scan_caches", { onEvent: channel });
-    return;
-  }
-  await simulateCaches(handlers);
-}
-
-/** Browser-only: fake the streaming sequence from SAMPLE for UI preview. */
-async function simulateScan(h: ScanHandlers): Promise<void> {
-  for (let i = 1; i <= 6; i++) {
-    if (browserScanCancelled) return h.onDone(SAMPLE.root, [], 0, []);
-    await delay(110);
-    h.onDiscovering(i * 240);
-  }
-  const locs = SAMPLE.locations;
-  h.onDiscovered(locs.length);
-  let done = 0;
-  for (const loc of locs) {
-    if (browserScanCancelled) break;
-    await delay(140);
-    h.onLocated(loc, ++done, locs.length);
-  }
-  h.onDone(SAMPLE.root, SAMPLE.categories, 0, []);
-}
-
-/** Browser-only preview of the system-caches view. */
-async function simulateCaches(h: ScanHandlers): Promise<void> {
-  const GB = 1e9;
-  const caches: Location[] = [
-    { path: "~/.cargo/registry/cache", project: "Cargo registry & git cache", artifact: "/cache", category: "rust", size: 3.4 * GB, age_secs: 90 * 86400, git_ignored: true },
-    { path: "~/.gradle/caches", project: "Gradle cache", artifact: "/caches", category: "jvm", size: 2.1 * GB, age_secs: 45 * 86400, git_ignored: true },
-    { path: "~/.npm/_cacache", project: "npm cache", artifact: "/_cacache", category: "node", size: 1.2 * GB, age_secs: 60 * 86400, git_ignored: true },
-  ];
-  for (let i = 1; i <= 3; i++) {
-    if (browserScanCancelled) return h.onDone("System caches", [], 0, []);
-    await delay(120);
-    h.onDiscovering(i * 2);
-  }
-  h.onDiscovered(caches.length);
-  let done = 0;
-  for (const c of caches) {
-    if (browserScanCancelled) break;
-    await delay(160);
-    h.onLocated(c, ++done, caches.length);
-  }
-  h.onDone("System caches", rollupCategories(caches), 0, []);
-}
-
-/** Callbacks the clean drives as per-path results stream in. */
-interface CleanHandlers {
-  onRemoving(path: string, done: number, total: number): void;
-  onRemoved(path: string, done: number, total: number): void;
-  onFailed(path: string, error: string, done: number, total: number): void;
-  onDone(removed: number, failed: number): void;
-}
-
-/** Route one streamed clean Channel event to the handler set. */
-function dispatchClean(h: CleanHandlers, ev: CleanEvent): void {
-  switch (ev.kind) {
-    case "removing": h.onRemoving(ev.path, ev.done, ev.total); break;
-    case "removed": h.onRemoved(ev.path, ev.done, ev.total); break;
-    case "failed": h.onFailed(ev.path, ev.error, ev.done, ev.total); break;
-    case "done": h.onDone(ev.removed, ev.failed); break;
-  }
-}
-
-/**
- * Delete `paths`, dispatching streamed per-path progress to `handlers`. In the
- * Tauri shell this opens a Channel to the Rust `clean` command; in a plain
- * browser it replays a fake sequence so the UI stays explorable.
- */
-async function runClean(
-  paths: string[],
-  toTrash: boolean,
-  handlers: CleanHandlers
-): Promise<void> {
-  if (IS_TAURI) {
-    const { invoke, Channel } = await import("@tauri-apps/api/core");
-    const channel = new Channel<CleanEvent>();
-    channel.onmessage = (ev) => dispatchClean(handlers, ev);
-    await invoke("clean", { paths, toTrash, onEvent: channel });
-    return;
-  }
-  await simulateClean(paths, handlers);
-}
-
-/** Browser-only: fake the clean stream, failing the last path (when there is
- *  more than one) so the failed-row treatment stays explorable. */
-async function simulateClean(paths: string[], h: CleanHandlers): Promise<void> {
-  const total = paths.length;
-  let removed = 0;
-  let failed = 0;
-  for (const path of paths) {
-    h.onRemoving(path, removed + failed, total);
-    await delay(260);
-    if (total > 1 && path === paths[paths.length - 1]) {
-      failed++;
-      h.onFailed(path, "in use (simulated)", removed + failed, total);
-    } else {
-      removed++;
-      h.onRemoved(path, removed + failed, total);
-    }
-  }
-  h.onDone(removed, failed);
-}
-
-async function pickFolder(): Promise<string | null> {
-  if (!IS_TAURI) return null;
-  const { open } = await import("@tauri-apps/plugin-dialog");
-  const sel = await open({ directory: true });
-  return typeof sel === "string" ? sel : null;
-}
-
-/** Open the folder with log files and crash reports in the OS file manager.
- *  Desktop only — the browser preview has no backend (and no logs). */
-async function openLogsDir(): Promise<void> {
-  if (!IS_TAURI) {
-    toast("Logs are available in the desktop app");
-    return;
-  }
-  const { invoke } = await import("@tauri-apps/api/core");
-  await invoke<string>("open_logs_dir");
-}
-
-/* window controls (custom titlebar) */
-async function windowAction(action: "minimize" | "maximize" | "close") {
-  if (!IS_TAURI) return;
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const w = getCurrentWindow();
-  if (action === "minimize") await w.minimize();
-  else if (action === "maximize") await w.toggleMaximize();
-  else if (action === "close") await w.close();
-}
 
 /* ───────────────────────── State ─────────────────────────────── */
 const state = {
@@ -249,7 +61,15 @@ const viewClean = $<HTMLElement>("#view-clean");
 const viewRules = $<HTMLElement>("#view-rules");
 
 /* ───────────────────────── Helpers ───────────────────────────── */
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Run `fn` only after `ms` of silence — keeps rapid input (typing in the age
+ *  field) from re-filtering and re-rendering the whole list per keystroke. */
+function debounce(fn: () => void, ms: number): () => void {
+  let timer: number | undefined;
+  return () => {
+    clearTimeout(timer);
+    timer = window.setTimeout(fn, ms);
+  };
+}
 
 /** Toast text after a scan: the count, plus an unreadable-items note when the
  *  backend couldn't fully read some paths (so a wrong total isn't shown as final).
@@ -511,7 +331,6 @@ async function doScan() {
   // Reset to an empty live result the stream will fill in.
   state.scanning = true;
   state.mode = "scan";
-  browserScanCancelled = false;
   rescanBtn.disabled = true;
   cachesBtn.disabled = true;
   state.result = { root: opts.root, categories: [], locations: [] };
@@ -573,7 +392,6 @@ async function doScanCaches() {
   if (state.scanning || state.cleaning) return;
   state.scanning = true;
   state.mode = "caches";
-  browserScanCancelled = false;
   rescanBtn.disabled = true;
   cachesBtn.disabled = true;
   state.result = { root: "System caches", categories: [], locations: [] };
@@ -767,13 +585,18 @@ function wire() {
       render();
     });
   });
-  ageInput.addEventListener("input", () => {
-    const v = parseInt(ageInput.value, 10);
-    state.ageDays = Number.isFinite(v) && v > 0 ? v : 14;
+  // Re-filtering is debounced: parsing is instant, but the full reconcile +
+  // re-render waits for a typing pause (matters on large result sets).
+  const applyAgeFilter = debounce(() => {
     if (state.filters.age) {
       reconcileSelection();
       render();
     }
+  }, 200);
+  ageInput.addEventListener("input", () => {
+    const v = parseInt(ageInput.value, 10);
+    state.ageDays = Number.isFinite(v) && v > 0 ? v : 14;
+    applyAgeFilter();
   });
 
   cleanBtn.addEventListener("click", doClean);
@@ -784,54 +607,16 @@ function wire() {
     b.addEventListener("click", () => setView(b.dataset.view as "clean" | "rules"))
   );
 
-  // open the log / crash-report folder
+  // open the log / crash-report folder (null = browser preview, no backend)
   $("#open-logs").addEventListener("click", () => {
-    openLogsDir().catch((err) => toast(`Couldn't open logs: ${err}`));
+    openLogsDir()
+      .then((dir) => {
+        if (dir === null) toast("Logs are available in the desktop app");
+      })
+      .catch((err) => toast(`Couldn't open logs: ${err}`));
   });
 }
 
 /* ───────────────────────── Boot ──────────────────────────────── */
 wire();
 doScan();
-
-/* ───────────────────────── Sample data ───────────────────────── *
- * Mirrors the reference screenshot. Used only for browser preview;
- * the Tauri build replaces this with a real disk scan.              */
-const GB = 1e9;
-const SAMPLE: ScanResult = {
-  root: "~/Projects",
-  categories: [
-    { id: "node", label: "Node.js", size: 2.2 * GB },
-    { id: "rust", label: "Rust", size: 14 * GB },
-    { id: "jvm", label: "JVM", size: 2.7 * GB },
-    { id: "python", label: "Python", size: 2.4 * GB },
-    { id: "php", label: "PHP", size: 0.5 * GB },
-  ],
-  locations: [
-    loc("space-sim", "/target", "rust", 6.6),
-    loc("dockoptim", "/target", "rust", 4.1),
-    loc("wold", "/target", "rust", 3.0),
-    loc("mam-rag", "/.venv", "python", 2.3),
-    loc("FarmersDelightReforged", "/.gradle", "jvm", 1.8),
-    loc("HookCatch", "/node_modules", "node", 1.1),
-    loc("FarmersDelightReforged", "/build", "jvm", 0.9),
-    loc("laravel-butler", "/node_modules", "node", 0.7),
-    loc("laravel-butler", "/vendor", "php", 0.5),
-  ],
-};
-function loc(
-  project: string,
-  artifact: string,
-  category: Location["category"],
-  gb: number
-): Location {
-  return {
-    path: `~/Projects/${project}${artifact}`,
-    project,
-    artifact,
-    category,
-    size: gb * GB,
-    age_secs: 20 * 86400,
-    git_ignored: true,
-  };
-}

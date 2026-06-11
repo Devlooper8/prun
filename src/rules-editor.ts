@@ -15,13 +15,20 @@ import {
   type JunkDef,
   type CacheDef,
   type RuleDefaults,
-  type RulesStatus,
   categoryColor,
   categoryLabel,
   KNOWN_ECOSYSTEMS,
 } from "./types";
+import {
+  IS_TAURI,
+  loadRules,
+  saveRules,
+  resetRules,
+  openRulesFile,
+  rulesStatus,
+} from "./backend";
+import { defaultDefaults, sampleRuleFile } from "./sample-data";
 
-const IS_TAURI = "__TAURI_INTERNALS__" in window;
 const $ = <T extends Element>(s: string) => document.querySelector<T>(s)!;
 
 const listEl = $<HTMLDivElement>("#re-list");
@@ -460,10 +467,6 @@ function deleteSelected() {
 }
 
 /* ── load / normalize / dirty / status ─────────────────────────── */
-function defaultDefaults(): RuleDefaults {
-  return { min_age_days: 14, skip_git_tracked: true, respect_ignorefile: true, move_to_trash: true, global_ignore: [".git", ".hg", ".svn", ".jj"] };
-}
-
 function normalize(rf: RuleFile): RuleFile {
   rf.rule = (rf.rule ?? []).map((r) => ({
     ...r,
@@ -483,13 +486,7 @@ function normalize(rf: RuleFile): RuleFile {
 }
 
 async function loadModel() {
-  let model: RuleFile;
-  if (IS_TAURI) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    model = await invoke<RuleFile>("load_rules");
-  } else {
-    model = sampleRuleFile();
-  }
+  const model = IS_TAURI ? await loadRules() : sampleRuleFile();
   ed.model = normalize(model);
   ed.loaded = true;
   ed.selected = null;
@@ -511,14 +508,15 @@ async function renderStatus() {
     return;
   }
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const s = await invoke<RulesStatus>("rules_status");
+    const s = await rulesStatus();
     const where = `Saving to ${s.override_path}`;
     if (s.error) statusEl.textContent = `${where} · ⚠ your override has an error — showing defaults`;
     else if (s.using_override) statusEl.textContent = `${where} · using your override`;
     else statusEl.textContent = `${where} · using built-in defaults (no override yet)`;
-  } catch {
-    statusEl.textContent = "";
+  } catch (err) {
+    // Leave the last status visible rather than silently blanking it, and say
+    // why — a wrong "using defaults" claim would be worse than an error line.
+    statusEl.textContent = `⚠ couldn't read the rules status: ${err}`;
   }
 }
 
@@ -548,8 +546,7 @@ async function save() {
   ed.saving = true;
   saveBtn.disabled = true;
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("save_rules", { rules: ed.model });
+    await saveRules(ed.model);
     setDirty(false);
     renderStatus();
     toast("Saved — applies on your next scan");
@@ -568,8 +565,7 @@ async function reset() {
   errorEl.hidden = true;
   if (IS_TAURI) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("reset_rules");
+      await resetRules();
     } catch (err) {
       errorEl.textContent = String(err);
       errorEl.hidden = false;
@@ -590,8 +586,7 @@ async function openFile() {
     return;
   }
   try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("open_rules_file");
+    await openRulesFile();
     toast("Opened the rules file in your editor");
     renderStatus();
   } catch (err) {
@@ -623,24 +618,4 @@ export async function enterRulesView() {
   if (!ed.loaded || !ed.dirty) await loadModel();
   renderStatus();
   renderSectionView();
-}
-
-/* ── browser-preview sample ────────────────────────────────────── */
-function sampleRuleFile(): RuleFile {
-  return {
-    schema_version: 3,
-    defaults: defaultDefaults(),
-    rule: [
-      { id: "rust-cargo", name: "Rust (Cargo)", ecosystem: "rust", markers: ["Cargo.toml"], anti_markers: [], dirs: ["target"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "node-modules", name: "Node.js (dependencies)", ecosystem: "node", markers: ["package.json"], anti_markers: [], dirs: ["node_modules"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "vite", name: "Vite", ecosystem: "node", markers: ["vite.config.ts"], anti_markers: [], dirs: ["dist", ".vite"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "python-venv", name: "Python virtualenv", ecosystem: "python", markers: ["pyvenv.cfg"], anti_markers: [], dirs: [], globs: [], reclaim_root: true, enabled: true, note: "Any dir containing pyvenv.cfg." },
-    ],
-    junk: [
-      { id: "os-cruft", name: "OS metadata", ecosystem: "junk", dirs: [], globs: [".DS_Store", "Thumbs.db"], enabled: true, note: null },
-    ],
-    global_cache: [
-      { id: "cargo", name: "Cargo registry & git cache", ecosystem: "rust", paths: ["~/.cargo/registry/cache"], platform: null, enabled: false, note: null },
-    ],
-  };
 }
