@@ -42,8 +42,7 @@ export function distinctCategories(locs: Location[]): CategoryId[] {
 /** Build the category roll-up from locations — live, as a scan streams. */
 export function rollupCategories(locations: Location[]): Category[] {
   const totals = new Map<CategoryId, number>();
-  for (const l of locations)
-    totals.set(l.category, (totals.get(l.category) ?? 0) + l.size);
+  for (const l of locations) totals.set(l.category, (totals.get(l.category) ?? 0) + l.size);
   return [...totals]
     .map(([id, size]) => ({ id, label: categoryLabel(id), size }))
     .sort((a, b) => b.size - a.size);
@@ -61,7 +60,7 @@ export function groupKey(loc: Location, root: string, mode: ScanMode): string {
 export function groupByProject(
   locations: Location[],
   root: string,
-  mode: ScanMode
+  mode: ScanMode,
 ): ProjectGroup[] {
   const groups = new Map<string, Location[]>();
   for (const loc of locations) {

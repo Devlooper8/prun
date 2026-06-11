@@ -1,10 +1,5 @@
 import "./styles.css";
-import {
-  type ScanResult,
-  type ScanOptions,
-  type Location,
-  categoryColor,
-} from "./types";
+import { type ScanResult, type ScanOptions, type Location, categoryColor } from "./types";
 import { fmtSize, esc, shortPath, truncate } from "./format";
 import {
   type ProjectGroup,
@@ -79,7 +74,7 @@ function scanSummary(
   count: number,
   errors: number,
   noun = "location",
-  errorSamples: string[] = []
+  errorSamples: string[] = [],
 ): string {
   const base = `Found ${count} ${noun}${count === 1 ? "" : "s"}`;
   if (errors === 0) return base;
@@ -155,8 +150,7 @@ function scheduleRender() {
   rafPending = true;
   requestAnimationFrame(() => {
     rafPending = false;
-    if (state.result)
-      state.result.categories = rollupCategories(state.result.locations);
+    if (state.result) state.result.categories = rollupCategories(state.result.locations);
     render();
   });
 }
@@ -179,8 +173,7 @@ function render() {
     const cb = li.querySelector<HTMLInputElement>(".cb")!;
     cb.addEventListener("change", () => {
       // empty set == "all on"; first manual toggle materialises the set
-      if (state.catsOn.size === 0)
-        res.categories.forEach((c) => state.catsOn.add(c.id));
+      if (state.catsOn.size === 0) res.categories.forEach((c) => state.catsOn.add(c.id));
       if (cb.checked) state.catsOn.add(cat.id);
       else state.catsOn.delete(cat.id);
       if (state.catsOn.size === res.categories.length) state.catsOn.clear();
@@ -230,8 +223,7 @@ function renderGroup(g: ProjectGroup, root: string): HTMLLIElement {
   const childrenUl = li.querySelector<HTMLUListElement>(".group__children")!;
   groupCb.indeterminate = sel > 0 && !allSel;
 
-  for (const loc of g.locations)
-    childrenUl.appendChild(renderChild(loc, g, groupCb, root));
+  for (const loc of g.locations) childrenUl.appendChild(renderChild(loc, g, groupCb, root));
 
   const toggleExpand = () => {
     const open = childrenUl.hasAttribute("hidden");
@@ -268,7 +260,7 @@ function renderChild(
   loc: Location,
   g: ProjectGroup,
   groupCb: HTMLInputElement,
-  root: string
+  root: string,
 ): HTMLLIElement {
   const li = document.createElement("li");
   const failure = state.failed.get(loc.path);
@@ -377,8 +369,7 @@ async function doScan() {
     state.selected = new Set(visibleLocations().map((l) => l.path));
     hideScanbar();
     render();
-    if (scanErrorSamples.length > 0)
-      console.warn("unreadable during scan:", scanErrorSamples);
+    if (scanErrorSamples.length > 0) console.warn("unreadable during scan:", scanErrorSamples);
     toast(scanSummary(state.result.locations.length, scanErrors, "location", scanErrorSamples));
   } catch (err) {
     hideScanbar();
@@ -439,7 +430,7 @@ async function doScanCaches() {
     if (cacheErrorSamples.length > 0)
       console.warn("unreadable during cache scan:", cacheErrorSamples);
     toast(
-      scanSummary(state.result.locations.length, cacheErrors, "system cache", cacheErrorSamples)
+      scanSummary(state.result.locations.length, cacheErrors, "system cache", cacheErrorSamples),
     );
   } catch (err) {
     hideScanbar();
@@ -509,7 +500,7 @@ async function doClean() {
     toast(
       state.failed.size === 0
         ? `${removed} location${removed === 1 ? "" : "s"} ${verb}`
-        : `${removed} ${verb} · ${state.failed.size} couldn't be removed (in use?)`
+        : `${removed} ${verb} · ${state.failed.size} couldn't be removed (in use?)`,
     );
   } catch (err) {
     hideScanbar();
@@ -529,9 +520,9 @@ function setView(view: "clean" | "rules") {
   state.view = view;
   viewClean.hidden = view !== "clean";
   viewRules.hidden = view !== "rules";
-  document.querySelectorAll<HTMLButtonElement>(".nav__item").forEach((b) =>
-    b.classList.toggle("is-active", b.dataset.view === view)
-  );
+  document
+    .querySelectorAll<HTMLButtonElement>(".nav__item")
+    .forEach((b) => b.classList.toggle("is-active", b.dataset.view === view));
   if (view === "rules") enterRulesView();
 }
 
@@ -555,11 +546,13 @@ function wire() {
   // window controls — only buttons that declare a window action (not buttons
   // that merely share the .wbtn style). The [data-win] selector guarantees the
   // dataset value exists; the HTML is the source of the three action names.
-  document.querySelectorAll<HTMLButtonElement>(".wbtn[data-win]").forEach((b) =>
-    b.addEventListener("click", () =>
-      windowAction(b.dataset.win as "minimize" | "maximize" | "close")
-    )
-  );
+  document
+    .querySelectorAll<HTMLButtonElement>(".wbtn[data-win]")
+    .forEach((b) =>
+      b.addEventListener("click", () =>
+        windowAction(b.dataset.win as "minimize" | "maximize" | "close"),
+      ),
+    );
 
   // rescan + system caches + folder picker
   $("#rescan").addEventListener("click", doScan);
@@ -611,9 +604,11 @@ function wire() {
 
   // top-level nav (left rail): Clean / Rules. Scoped to [data-view] — the rail
   // also holds action buttons (Logs) that share the style but switch no view.
-  document.querySelectorAll<HTMLButtonElement>(".nav__item[data-view]").forEach((b) =>
-    b.addEventListener("click", () => setView(b.dataset.view as "clean" | "rules"))
-  );
+  document
+    .querySelectorAll<HTMLButtonElement>(".nav__item[data-view]")
+    .forEach((b) =>
+      b.addEventListener("click", () => setView(b.dataset.view as "clean" | "rules")),
+    );
 
   // open the log / crash-report folder (null = browser preview, no backend)
   $("#open-logs").addEventListener("click", () => {

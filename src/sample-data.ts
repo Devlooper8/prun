@@ -11,7 +11,7 @@ function loc(
   project: string,
   artifact: string,
   category: Location["category"],
-  gb: number
+  gb: number,
 ): Location {
   return {
     path: `~/Projects/${project}${artifact}`,
@@ -49,9 +49,33 @@ export const SAMPLE: ScanResult = {
 
 /** Fake per-user system caches for the caches-view preview. */
 export const SAMPLE_CACHES: Location[] = [
-  { path: "~/.cargo/registry/cache", project: "Cargo registry & git cache", artifact: "/cache", category: "rust", size: 3.4 * GB, age_secs: 90 * 86400, git_ignored: true },
-  { path: "~/.gradle/caches", project: "Gradle cache", artifact: "/caches", category: "jvm", size: 2.1 * GB, age_secs: 45 * 86400, git_ignored: true },
-  { path: "~/.npm/_cacache", project: "npm cache", artifact: "/_cacache", category: "node", size: 1.2 * GB, age_secs: 60 * 86400, git_ignored: true },
+  {
+    path: "~/.cargo/registry/cache",
+    project: "Cargo registry & git cache",
+    artifact: "/cache",
+    category: "rust",
+    size: 3.4 * GB,
+    age_secs: 90 * 86400,
+    git_ignored: true,
+  },
+  {
+    path: "~/.gradle/caches",
+    project: "Gradle cache",
+    artifact: "/caches",
+    category: "jvm",
+    size: 2.1 * GB,
+    age_secs: 45 * 86400,
+    git_ignored: true,
+  },
+  {
+    path: "~/.npm/_cacache",
+    project: "npm cache",
+    artifact: "/_cacache",
+    category: "node",
+    size: 1.2 * GB,
+    age_secs: 60 * 86400,
+    git_ignored: true,
+  },
 ];
 
 /** The editor's fallback defaults — also what normalize() fills in when a loaded
@@ -72,16 +96,76 @@ export function sampleRuleFile(): RuleFile {
     schema_version: 3,
     defaults: defaultDefaults(),
     rule: [
-      { id: "rust-cargo", name: "Rust (Cargo)", ecosystem: "rust", markers: ["Cargo.toml"], anti_markers: [], dirs: ["target"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "node-modules", name: "Node.js (dependencies)", ecosystem: "node", markers: ["package.json"], anti_markers: [], dirs: ["node_modules"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "vite", name: "Vite", ecosystem: "node", markers: ["vite.config.ts"], anti_markers: [], dirs: ["dist", ".vite"], globs: [], reclaim_root: false, enabled: true, note: null },
-      { id: "python-venv", name: "Python virtualenv", ecosystem: "python", markers: ["pyvenv.cfg"], anti_markers: [], dirs: [], globs: [], reclaim_root: true, enabled: true, note: "Any dir containing pyvenv.cfg." },
+      {
+        id: "rust-cargo",
+        name: "Rust (Cargo)",
+        ecosystem: "rust",
+        markers: ["Cargo.toml"],
+        anti_markers: [],
+        dirs: ["target"],
+        globs: [],
+        reclaim_root: false,
+        enabled: true,
+        note: null,
+      },
+      {
+        id: "node-modules",
+        name: "Node.js (dependencies)",
+        ecosystem: "node",
+        markers: ["package.json"],
+        anti_markers: [],
+        dirs: ["node_modules"],
+        globs: [],
+        reclaim_root: false,
+        enabled: true,
+        note: null,
+      },
+      {
+        id: "vite",
+        name: "Vite",
+        ecosystem: "node",
+        markers: ["vite.config.ts"],
+        anti_markers: [],
+        dirs: ["dist", ".vite"],
+        globs: [],
+        reclaim_root: false,
+        enabled: true,
+        note: null,
+      },
+      {
+        id: "python-venv",
+        name: "Python virtualenv",
+        ecosystem: "python",
+        markers: ["pyvenv.cfg"],
+        anti_markers: [],
+        dirs: [],
+        globs: [],
+        reclaim_root: true,
+        enabled: true,
+        note: "Any dir containing pyvenv.cfg.",
+      },
     ],
     junk: [
-      { id: "os-cruft", name: "OS metadata", ecosystem: "junk", dirs: [], globs: [".DS_Store", "Thumbs.db"], enabled: true, note: null },
+      {
+        id: "os-cruft",
+        name: "OS metadata",
+        ecosystem: "junk",
+        dirs: [],
+        globs: [".DS_Store", "Thumbs.db"],
+        enabled: true,
+        note: null,
+      },
     ],
     global_cache: [
-      { id: "cargo", name: "Cargo registry & git cache", ecosystem: "rust", paths: ["~/.cargo/registry/cache"], platform: null, enabled: false, note: null },
+      {
+        id: "cargo",
+        name: "Cargo registry & git cache",
+        ecosystem: "rust",
+        paths: ["~/.cargo/registry/cache"],
+        platform: null,
+        enabled: false,
+        note: null,
+      },
     ],
   };
 }

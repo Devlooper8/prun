@@ -12,9 +12,7 @@ describe("fmtSize", () => {
 
 describe("esc", () => {
   it("neutralizes the HTML metacharacters that enable XSS", () => {
-    expect(esc("<img src=x onerror=alert(1)>")).toBe(
-      "&lt;img src=x onerror=alert(1)&gt;"
-    );
+    expect(esc("<img src=x onerror=alert(1)>")).toBe("&lt;img src=x onerror=alert(1)&gt;");
     expect(esc('a & b "c"')).toBe("a &amp; b &quot;c&quot;");
   });
   it("leaves plain text untouched", () => {

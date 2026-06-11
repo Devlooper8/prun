@@ -19,14 +19,7 @@ import {
   categoryLabel,
   KNOWN_ECOSYSTEMS,
 } from "./types";
-import {
-  IS_TAURI,
-  loadRules,
-  saveRules,
-  resetRules,
-  openRulesFile,
-  rulesStatus,
-} from "./backend";
+import { IS_TAURI, loadRules, saveRules, resetRules, openRulesFile, rulesStatus } from "./backend";
 import { defaultDefaults, sampleRuleFile } from "./sample-data";
 
 const $ = <T extends Element>(s: string) => document.querySelector<T>(s)!;
@@ -58,7 +51,7 @@ const ed = {
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   cls?: string,
-  text?: string
+  text?: string,
 ): HTMLElementTagNameMap[K] {
   const n = document.createElement(tag);
   if (cls) n.className = cls;
@@ -73,7 +66,11 @@ function field(label: string, control: HTMLElement): HTMLDivElement {
   return f;
 }
 
-function textInput(value: string, placeholder: string, oninput: (v: string) => void): HTMLInputElement {
+function textInput(
+  value: string,
+  placeholder: string,
+  oninput: (v: string) => void,
+): HTMLInputElement {
   const i = el("input", "re-input");
   i.type = "text";
   i.value = value;
@@ -83,7 +80,11 @@ function textInput(value: string, placeholder: string, oninput: (v: string) => v
   return i;
 }
 
-function checkbox(checked: boolean, label: string, onchange: (v: boolean) => void): HTMLLabelElement {
+function checkbox(
+  checked: boolean,
+  label: string,
+  onchange: (v: boolean) => void,
+): HTMLLabelElement {
   const wrap = el("label", "re-check");
   const cb = el("input", "cb");
   cb.type = "checkbox";
@@ -171,7 +172,9 @@ function stringList(items: string[], placeholder: string, onChange: () => void):
 /* ── list pane ─────────────────────────────────────────────────── */
 function currentEntries(): Entry[] {
   const m = ed.model!;
-  return (ed.section === "rule" ? m.rule : ed.section === "junk" ? m.junk : m.global_cache) as Entry[];
+  return (
+    ed.section === "rule" ? m.rule : ed.section === "junk" ? m.junk : m.global_cache
+  ) as Entry[];
 }
 
 function matchEntry(e: Entry, q: string): boolean {
@@ -242,7 +245,9 @@ function renderGroups() {
       dot.style.background = categoryColor(key);
       header.appendChild(dot);
     }
-    header.appendChild(el("span", "re-group__name", key === "(unsorted)" ? "(unsorted)" : categoryLabel(key)));
+    header.appendChild(
+      el("span", "re-group__name", key === "(unsorted)" ? "(unsorted)" : categoryLabel(key)),
+    );
     header.appendChild(el("span", "re-group__count", String(items.length)));
     header.addEventListener("click", () => {
       if (ed.collapsed.has(gkey)) ed.collapsed.delete(gkey);
@@ -313,7 +318,9 @@ function renderDetail() {
     return;
   }
   if (!ed.selected) {
-    detailEl.appendChild(el("div", "re-placeholder", "Select an entry on the left, or ＋ Add a new one."));
+    detailEl.appendChild(
+      el("div", "re-placeholder", "Select an entry on the left, or ＋ Add a new one."),
+    );
     return;
   }
   if (ed.section === "rule") detailEl.appendChild(renderRuleForm(ed.selected as RuleDef));
@@ -343,22 +350,79 @@ function renderRuleForm(r: RuleDef): HTMLElement {
   };
 
   const grid = el("div", "re-grid");
-  grid.appendChild(field("id", textInput(r.id, "unique-id", (v) => { r.id = v; markDirty(); titled(); })));
-  grid.appendChild(field("name", textInput(r.name, "Display name", (v) => { r.name = v; markDirty(); titled(); })));
-  grid.appendChild(field("ecosystem", ecosystemInput(r.ecosystem, (v) => { r.ecosystem = v; markDirty(); syncSelectedRow(); })));
+  grid.appendChild(
+    field(
+      "id",
+      textInput(r.id, "unique-id", (v) => {
+        r.id = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "name",
+      textInput(r.name, "Display name", (v) => {
+        r.name = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "ecosystem",
+      ecosystemInput(r.ecosystem, (v) => {
+        r.ecosystem = v;
+        markDirty();
+        syncSelectedRow();
+      }),
+    ),
+  );
   wrap.appendChild(grid);
 
-  wrap.appendChild(field("markers", stringList(r.markers, "+ marker (Cargo.toml, *.csproj…)", markDirty)));
-  wrap.appendChild(field("anti-markers", stringList(r.anti_markers, "+ anti-marker (skip dir if present, e.g. CMakeLists.txt)", markDirty)));
+  wrap.appendChild(
+    field("markers", stringList(r.markers, "+ marker (Cargo.toml, *.csproj…)", markDirty)),
+  );
+  wrap.appendChild(
+    field(
+      "anti-markers",
+      stringList(
+        r.anti_markers,
+        "+ anti-marker (skip dir if present, e.g. CMakeLists.txt)",
+        markDirty,
+      ),
+    ),
+  );
   wrap.appendChild(field("dirs", stringList(r.dirs, "+ dir (target, project/target…)", markDirty)));
   wrap.appendChild(field("globs", stringList(r.globs, "+ glob (*.o, __pycache__…)", markDirty)));
 
   const toggles = el("div", "re-toggles");
-  toggles.appendChild(checkbox(r.enabled, "Enabled", (v) => { r.enabled = v; markDirty(); syncSelectedRow(); }));
-  toggles.appendChild(checkbox(r.reclaim_root, "Reclaim root (the marker's own dir is the artifact)", (v) => { r.reclaim_root = v; markDirty(); }));
+  toggles.appendChild(
+    checkbox(r.enabled, "Enabled", (v) => {
+      r.enabled = v;
+      markDirty();
+      syncSelectedRow();
+    }),
+  );
+  toggles.appendChild(
+    checkbox(r.reclaim_root, "Reclaim root (the marker's own dir is the artifact)", (v) => {
+      r.reclaim_root = v;
+      markDirty();
+    }),
+  );
   wrap.appendChild(toggles);
 
-  wrap.appendChild(field("note", noteArea(r.note, (v) => { r.note = v; markDirty(); })));
+  wrap.appendChild(
+    field(
+      "note",
+      noteArea(r.note, (v) => {
+        r.note = v;
+        markDirty();
+      }),
+    ),
+  );
   return wrap;
 }
 
@@ -372,19 +436,60 @@ function renderJunkForm(j: JunkDef): HTMLElement {
   };
 
   const grid = el("div", "re-grid");
-  grid.appendChild(field("id", textInput(j.id, "unique-id", (v) => { j.id = v; markDirty(); titled(); })));
-  grid.appendChild(field("name", textInput(j.name, "Display name", (v) => { j.name = v; markDirty(); titled(); })));
-  grid.appendChild(field("ecosystem", ecosystemInput(j.ecosystem, (v) => { j.ecosystem = v; markDirty(); syncSelectedRow(); })));
+  grid.appendChild(
+    field(
+      "id",
+      textInput(j.id, "unique-id", (v) => {
+        j.id = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "name",
+      textInput(j.name, "Display name", (v) => {
+        j.name = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "ecosystem",
+      ecosystemInput(j.ecosystem, (v) => {
+        j.ecosystem = v;
+        markDirty();
+        syncSelectedRow();
+      }),
+    ),
+  );
   wrap.appendChild(grid);
 
   wrap.appendChild(field("dirs", stringList(j.dirs, "+ dir (.ccls-cache…)", markDirty)));
   wrap.appendChild(field("globs", stringList(j.globs, "+ glob (.DS_Store, *.swp…)", markDirty)));
 
   const toggles = el("div", "re-toggles");
-  toggles.appendChild(checkbox(j.enabled, "Enabled", (v) => { j.enabled = v; markDirty(); syncSelectedRow(); }));
+  toggles.appendChild(
+    checkbox(j.enabled, "Enabled", (v) => {
+      j.enabled = v;
+      markDirty();
+      syncSelectedRow();
+    }),
+  );
   wrap.appendChild(toggles);
 
-  wrap.appendChild(field("note", noteArea(j.note, (v) => { j.note = v; markDirty(); })));
+  wrap.appendChild(
+    field(
+      "note",
+      noteArea(j.note, (v) => {
+        j.note = v;
+        markDirty();
+      }),
+    ),
+  );
   return wrap;
 }
 
@@ -399,14 +504,59 @@ function renderCacheForm(c: CacheDef): HTMLElement {
   };
 
   const grid = el("div", "re-grid");
-  grid.appendChild(field("id", textInput(c.id, "unique-id", (v) => { c.id = v; markDirty(); titled(); })));
-  grid.appendChild(field("name", textInput(c.name, "Display name", (v) => { c.name = v; markDirty(); titled(); })));
-  grid.appendChild(field("ecosystem", ecosystemInput(c.ecosystem, (v) => { c.ecosystem = v; markDirty(); syncSelectedRow(); })));
-  grid.appendChild(field("platform", textInput(c.platform ?? "", "all (or macos/windows/linux)", (v) => { c.platform = v.trim() === "" ? null : v.trim(); markDirty(); })));
+  grid.appendChild(
+    field(
+      "id",
+      textInput(c.id, "unique-id", (v) => {
+        c.id = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "name",
+      textInput(c.name, "Display name", (v) => {
+        c.name = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "ecosystem",
+      ecosystemInput(c.ecosystem, (v) => {
+        c.ecosystem = v;
+        markDirty();
+        syncSelectedRow();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "platform",
+      textInput(c.platform ?? "", "all (or macos/windows/linux)", (v) => {
+        c.platform = v.trim() === "" ? null : v.trim();
+        markDirty();
+      }),
+    ),
+  );
   wrap.appendChild(grid);
 
-  wrap.appendChild(field("paths", stringList(c.paths, "+ path (~/.cargo/registry/cache…)", markDirty)));
-  wrap.appendChild(field("note", noteArea(c.note, (v) => { c.note = v; markDirty(); })));
+  wrap.appendChild(
+    field("paths", stringList(c.paths, "+ path (~/.cargo/registry/cache…)", markDirty)),
+  );
+  wrap.appendChild(
+    field(
+      "note",
+      noteArea(c.note, (v) => {
+        c.note = v;
+        markDirty();
+      }),
+    ),
+  );
   return wrap;
 }
 
@@ -423,29 +573,87 @@ function renderDefaultsForm(d: RuleDefaults): HTMLElement {
   wrap.appendChild(field("min_age_days", minAge));
 
   const toggles = el("div", "re-toggles");
-  toggles.appendChild(checkbox(d.skip_git_tracked, "skip_git_tracked", (v) => { d.skip_git_tracked = v; markDirty(); }));
-  toggles.appendChild(checkbox(d.respect_ignorefile, "respect_ignorefile", (v) => { d.respect_ignorefile = v; markDirty(); }));
-  toggles.appendChild(checkbox(d.move_to_trash, "move_to_trash", (v) => { d.move_to_trash = v; markDirty(); }));
+  toggles.appendChild(
+    checkbox(d.skip_git_tracked, "skip_git_tracked", (v) => {
+      d.skip_git_tracked = v;
+      markDirty();
+    }),
+  );
+  toggles.appendChild(
+    checkbox(d.respect_ignorefile, "respect_ignorefile", (v) => {
+      d.respect_ignorefile = v;
+      markDirty();
+    }),
+  );
+  toggles.appendChild(
+    checkbox(d.move_to_trash, "move_to_trash", (v) => {
+      d.move_to_trash = v;
+      markDirty();
+    }),
+  );
   wrap.appendChild(toggles);
 
-  wrap.appendChild(field("global_ignore", stringList(d.global_ignore, "+ dir to never enter (.git…)", markDirty)));
   wrap.appendChild(
-    el("p", "re-hint", "min_age_days / skip_git_tracked / respect_ignorefile are driven per-scan by the filter pills; only global_ignore always applies.")
+    field("global_ignore", stringList(d.global_ignore, "+ dir to never enter (.git…)", markDirty)),
+  );
+  wrap.appendChild(
+    el(
+      "p",
+      "re-hint",
+      "min_age_days / skip_git_tracked / respect_ignorefile are driven per-scan by the filter pills; only global_ignore always applies.",
+    ),
   );
   return wrap;
 }
 
 /* ── add / delete ──────────────────────────────────────────────── */
-const blankRule = (): RuleDef => ({ id: "", name: "", ecosystem: "", markers: [], anti_markers: [], dirs: [], globs: [], reclaim_root: false, enabled: true, note: null });
-const blankJunk = (): JunkDef => ({ id: "", name: "", ecosystem: "junk", dirs: [], globs: [], enabled: true, note: null });
-const blankCache = (): CacheDef => ({ id: "", name: "", ecosystem: "", paths: [], platform: null, enabled: false, note: null });
+const blankRule = (): RuleDef => ({
+  id: "",
+  name: "",
+  ecosystem: "",
+  markers: [],
+  anti_markers: [],
+  dirs: [],
+  globs: [],
+  reclaim_root: false,
+  enabled: true,
+  note: null,
+});
+const blankJunk = (): JunkDef => ({
+  id: "",
+  name: "",
+  ecosystem: "junk",
+  dirs: [],
+  globs: [],
+  enabled: true,
+  note: null,
+});
+const blankCache = (): CacheDef => ({
+  id: "",
+  name: "",
+  ecosystem: "",
+  paths: [],
+  platform: null,
+  enabled: false,
+  note: null,
+});
 
 function onAdd() {
   const m = ed.model!;
   let e: Entry;
-  if (ed.section === "rule") { const r = blankRule(); m.rule.unshift(r); e = r; }
-  else if (ed.section === "junk") { const j = blankJunk(); m.junk.unshift(j); e = j; }
-  else { const c = blankCache(); m.global_cache.unshift(c); e = c; }
+  if (ed.section === "rule") {
+    const r = blankRule();
+    m.rule.unshift(r);
+    e = r;
+  } else if (ed.section === "junk") {
+    const j = blankJunk();
+    m.junk.unshift(j);
+    e = j;
+  } else {
+    const c = blankCache();
+    m.global_cache.unshift(c);
+    e = c;
+  }
   ed.selected = e;
   markDirty();
   renderGroups();
@@ -457,9 +665,16 @@ function deleteSelected() {
   const m = ed.model!;
   const e = ed.selected;
   if (!e) return;
-  if (ed.section === "rule") { const i = m.rule.indexOf(e as RuleDef); if (i >= 0) m.rule.splice(i, 1); }
-  else if (ed.section === "junk") { const i = m.junk.indexOf(e as JunkDef); if (i >= 0) m.junk.splice(i, 1); }
-  else { const i = m.global_cache.indexOf(e as CacheDef); if (i >= 0) m.global_cache.splice(i, 1); }
+  if (ed.section === "rule") {
+    const i = m.rule.indexOf(e as RuleDef);
+    if (i >= 0) m.rule.splice(i, 1);
+  } else if (ed.section === "junk") {
+    const i = m.junk.indexOf(e as JunkDef);
+    if (i >= 0) m.junk.splice(i, 1);
+  } else {
+    const i = m.global_cache.indexOf(e as CacheDef);
+    if (i >= 0) m.global_cache.splice(i, 1);
+  }
   ed.selected = null;
   markDirty();
   renderGroups();
@@ -470,14 +685,27 @@ function deleteSelected() {
 function normalize(rf: RuleFile): RuleFile {
   rf.rule = (rf.rule ?? []).map((r) => ({
     ...r,
-    markers: r.markers ?? [], anti_markers: r.anti_markers ?? [], dirs: r.dirs ?? [], globs: r.globs ?? [],
-    reclaim_root: r.reclaim_root ?? false, enabled: r.enabled ?? true, note: r.note ?? null,
+    markers: r.markers ?? [],
+    anti_markers: r.anti_markers ?? [],
+    dirs: r.dirs ?? [],
+    globs: r.globs ?? [],
+    reclaim_root: r.reclaim_root ?? false,
+    enabled: r.enabled ?? true,
+    note: r.note ?? null,
   }));
   rf.junk = (rf.junk ?? []).map((j) => ({
-    ...j, dirs: j.dirs ?? [], globs: j.globs ?? [], enabled: j.enabled ?? true, note: j.note ?? null,
+    ...j,
+    dirs: j.dirs ?? [],
+    globs: j.globs ?? [],
+    enabled: j.enabled ?? true,
+    note: j.note ?? null,
   }));
   rf.global_cache = (rf.global_cache ?? []).map((c) => ({
-    ...c, paths: c.paths ?? [], platform: c.platform ?? null, enabled: c.enabled ?? false, note: c.note ?? null,
+    ...c,
+    paths: c.paths ?? [],
+    platform: c.platform ?? null,
+    enabled: c.enabled ?? false,
+    note: c.note ?? null,
   }));
   rf.defaults = rf.defaults ?? defaultDefaults();
   rf.defaults.global_ignore = rf.defaults.global_ignore ?? [];
@@ -504,13 +732,15 @@ function markDirty() {
 
 async function renderStatus() {
   if (!IS_TAURI) {
-    statusEl.textContent = "Preview mode — the desktop app saves to your override at %APPDATA%\\prun\\rules.toml";
+    statusEl.textContent =
+      "Preview mode — the desktop app saves to your override at %APPDATA%\\prun\\rules.toml";
     return;
   }
   try {
     const s = await rulesStatus();
     const where = `Saving to ${s.override_path}`;
-    if (s.error) statusEl.textContent = `${where} · ⚠ your override has an error — showing defaults`;
+    if (s.error)
+      statusEl.textContent = `${where} · ⚠ your override has an error — showing defaults`;
     else if (s.using_override) statusEl.textContent = `${where} · using your override`;
     else statusEl.textContent = `${where} · using built-in defaults (no override yet)`;
   } catch (err) {
@@ -522,9 +752,9 @@ async function renderStatus() {
 
 /* ── section + actions ─────────────────────────────────────────── */
 function renderSectionView() {
-  document.querySelectorAll<HTMLButtonElement>("#view-rules .reditor__tab").forEach((t) =>
-    t.classList.toggle("is-active", t.dataset.section === ed.section)
-  );
+  document
+    .querySelectorAll<HTMLButtonElement>("#view-rules .reditor__tab")
+    .forEach((t) => t.classList.toggle("is-active", t.dataset.section === ed.section));
   if (ed.section === "defaults") {
     splitEl.classList.add("reditor__split--single");
     listEl.innerHTML = "";

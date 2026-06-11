@@ -34,10 +34,18 @@ export interface ScanHandlers {
 /** Route one streamed Channel event to the handler set. */
 function dispatch(h: ScanHandlers, ev: ScanEvent): void {
   switch (ev.kind) {
-    case "discovering": h.onDiscovering(ev.scanned); break;
-    case "discovered": h.onDiscovered(ev.total); break;
-    case "located": h.onLocated(ev.location, ev.done, ev.total); break;
-    case "done": h.onDone(ev.root, ev.categories, ev.errors, ev.error_samples); break;
+    case "discovering":
+      h.onDiscovering(ev.scanned);
+      break;
+    case "discovered":
+      h.onDiscovered(ev.total);
+      break;
+    case "located":
+      h.onLocated(ev.location, ev.done, ev.total);
+      break;
+    case "done":
+      h.onDone(ev.root, ev.categories, ev.errors, ev.error_samples);
+      break;
   }
 }
 
@@ -132,10 +140,18 @@ export interface CleanHandlers {
 /** Route one streamed clean Channel event to the handler set. */
 function dispatchClean(h: CleanHandlers, ev: CleanEvent): void {
   switch (ev.kind) {
-    case "removing": h.onRemoving(ev.path, ev.done, ev.total); break;
-    case "removed": h.onRemoved(ev.path, ev.done, ev.total); break;
-    case "failed": h.onFailed(ev.path, ev.error, ev.done, ev.total); break;
-    case "done": h.onDone(ev.removed, ev.failed); break;
+    case "removing":
+      h.onRemoving(ev.path, ev.done, ev.total);
+      break;
+    case "removed":
+      h.onRemoved(ev.path, ev.done, ev.total);
+      break;
+    case "failed":
+      h.onFailed(ev.path, ev.error, ev.done, ev.total);
+      break;
+    case "done":
+      h.onDone(ev.removed, ev.failed);
+      break;
   }
 }
 
@@ -147,7 +163,7 @@ function dispatchClean(h: CleanHandlers, ev: CleanEvent): void {
 export async function runClean(
   paths: string[],
   toTrash: boolean,
-  handlers: CleanHandlers
+  handlers: CleanHandlers,
 ): Promise<void> {
   if (IS_TAURI) {
     const { invoke, Channel } = await import("@tauri-apps/api/core");

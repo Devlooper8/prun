@@ -14,7 +14,7 @@ const loc = (
   path: string,
   category: string,
   size: number,
-  extra: Partial<Location> = {}
+  extra: Partial<Location> = {},
 ): Location => ({
   path,
   project: "",
@@ -29,7 +29,7 @@ const loc = (
 describe("path helpers", () => {
   it("relUnderRoot strips the root and leading separators", () => {
     expect(relUnderRoot("D:\\Projects\\prun\\src-tauri\\target", "D:\\Projects")).toBe(
-      "prun\\src-tauri\\target"
+      "prun\\src-tauri\\target",
     );
     expect(relUnderRoot("/home/me/app/target", "/home/me")).toBe("app/target");
   });
@@ -42,7 +42,7 @@ describe("path helpers", () => {
 
   it("subPathOf returns the artifact location within its project", () => {
     expect(subPathOf("D:\\Projects\\prun\\src-tauri\\target", "D:\\Projects")).toBe(
-      "src-tauri/target"
+      "src-tauri/target",
     );
   });
 });
@@ -97,21 +97,38 @@ describe("filterLocations", () => {
   ];
 
   it("an empty category set means all categories pass", () => {
-    expect(filterLocations(locs, { catsOn: new Set(), ageFilter: false, ageDays: 14, gitFilter: false })).toHaveLength(3);
+    expect(
+      filterLocations(locs, { catsOn: new Set(), ageFilter: false, ageDays: 14, gitFilter: false }),
+    ).toHaveLength(3);
   });
 
   it("filters by enabled category", () => {
-    const out = filterLocations(locs, { catsOn: new Set(["rust"]), ageFilter: false, ageDays: 14, gitFilter: false });
+    const out = filterLocations(locs, {
+      catsOn: new Set(["rust"]),
+      ageFilter: false,
+      ageDays: 14,
+      gitFilter: false,
+    });
     expect(out.map((l) => l.path)).toEqual(["/a", "/c"]); // sorted biggest-first: 9, 7
   });
 
   it("age filter drops anything younger than the cutoff", () => {
-    const out = filterLocations(locs, { catsOn: new Set(), ageFilter: true, ageDays: 14, gitFilter: false });
+    const out = filterLocations(locs, {
+      catsOn: new Set(),
+      ageFilter: true,
+      ageDays: 14,
+      gitFilter: false,
+    });
     expect(out.map((l) => l.path)).toEqual(["/a", "/c"]); // /b is 1 day old
   });
 
   it("git filter keeps only git-ignored paths", () => {
-    const out = filterLocations(locs, { catsOn: new Set(), ageFilter: false, ageDays: 14, gitFilter: true });
+    const out = filterLocations(locs, {
+      catsOn: new Set(),
+      ageFilter: false,
+      ageDays: 14,
+      gitFilter: true,
+    });
     expect(out.map((l) => l.path)).toEqual(["/a", "/b"]); // /c is tracked
   });
 });
