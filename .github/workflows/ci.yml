@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   frontend:
-    name: Frontend (build · test)
+    name: Frontend (lint · build · test)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -27,10 +27,16 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - name: Lint
+        run: npm run lint # eslint
+      - name: Format check
+        run: npm run format:check # prettier (src TypeScript)
       - name: Type-check & build
         run: npm run build # tsc --noEmit && vite build
-      - name: Unit tests
-        run: npm test # vitest run
+      - name: Unit tests (with coverage report)
+        # Coverage is informational for now — printed in the job log, no
+        # threshold gate until the number stabilizes.
+        run: npm run test:coverage
 
   rust:
     name: Rust (fmt · clippy · test)
