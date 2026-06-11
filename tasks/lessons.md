@@ -118,6 +118,21 @@ one front-end's threat model.
 word-split and git received stray pathspecs (commit never happened). **Fix:** write
 the message to a temp file and `git commit -F file`, then delete it. Reliable for
 any multi-line/special-char message on Windows PowerShell.
+**Addendum:** write that temp file with `[System.IO.File]::WriteAllText(...)`,
+NOT `Set-Content -Encoding utf8` — PowerShell 5.1's utf8 writes a BOM and git
+puts U+FEFF at the start of the commit subject.
+
+## An ignore-file allowlist can silently match nothing — prove the tool sees files
+`.prettierignore` with `*` then `!src/**/*.ts` passed `--check` instantly — because
+it checked ZERO files: gitignore semantics can't re-include a file whose parent
+directory is excluded. `*` excludes `src/` itself, so the negation was dead and
+"All matched files use Prettier code style!" was vacuously true. **Fix:** exclude
+top-level entries (`/*`), re-include the directory (`!/src/`), then carve out
+exceptions. **Pattern:** when wiring any allowlist-style ignore (prettier, eslint,
+docker, npmignore), treat an instant suspiciously-green first run as a signal to
+verify the tool actually matched files (run with a known-dirty file or list the
+matched set) — a checker that checks nothing is the "dead control" lesson wearing
+CI clothes.
 
 ## rustfmt vs a deliberate compact style — decide once, enforce in CI
 The author hand-wrote single-line enum struct-variants; rustfmt expands them, and

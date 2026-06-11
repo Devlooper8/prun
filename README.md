@@ -50,6 +50,7 @@ prun scan [PATH] [--all] [--min-age DAYS] [--json]   # list reclaimable artifact
 prun caches [--json]                                 # per-user system caches
 prun rules [--json]                                  # active ruleset status
 prun clean PATH... [--delete]                        # Trash (or permanently delete)
+prun logs                                            # print the log/crash-report dir
 ```
 
 (During development: `cargo run --manifest-path src-tauri/Cargo.toml -- scan ~/Projects`.
@@ -104,9 +105,12 @@ when the footer checkbox is unticked.
 cargo test --manifest-path src-tauri/Cargo.toml   # backend unit tests
 npm test                                          # frontend (Vitest)
 npm run build                                     # tsc --noEmit + vite build
+npm run lint && npm run format:check              # eslint + prettier
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
-CI (`.github/workflows/ci.yml`) runs all of the above on Linux and Windows, plus
-`cargo fmt --check` and an advisory `npm`/`cargo audit`. See `CHANGELOG.md` for
-release history and `RELEASING.md` for the signing/auto-update release process.
+CI (`.github/workflows/ci.yml`) runs all of the above on Linux, Windows, and
+macOS, plus `cargo fmt --check`, a vitest coverage report, and an advisory
+`npm`/`cargo audit`. See `ARCHITECTURE.md` for the module map and invariants,
+`CONTRIBUTING.md` for the PR bar, `CHANGELOG.md` for release history, and
+`RELEASING.md` for the signing/auto-update release process.

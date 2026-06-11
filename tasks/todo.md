@@ -554,32 +554,93 @@ are scaffolded to "add-secret-and-go" and listed under Deferred.
 Branch: `feat/enterprise-grade-tier4-6` (stacked on tier0-3).
 
 ## Tier 4 — Trust & distribution (no-secrets items)
-- [ ] CI: macOS job (clippy + test); clippy added to the Windows job
-- [ ] CI + release: pin all third-party actions to commit SHAs (dtolnay pinned ⇒ explicit `toolchain: stable` input)
-- [ ] release.yml: CycloneDX SBOM (anchore/sbom-action, ubuntu leg) as workflow artifact
-- [ ] release.yml: build-provenance attestations for every bundle (actions/attest-build-provenance)
-- [ ] RELEASING.md: SBOM/attestation section + Azure Trusted Signing pointer
+- [x] CI: macOS job (clippy + test); clippy added to the Windows job
+- [x] CI + release: pin all third-party actions to commit SHAs (dtolnay pinned ⇒ explicit `toolchain: stable` input)
+- [x] release.yml: CycloneDX SBOM (anchore/sbom-action, ubuntu leg) as workflow artifact
+- [x] release.yml: build-provenance attestations for every bundle (actions/attest-build-provenance)
+- [x] RELEASING.md: SBOM/attestation section + Azure Trusted Signing pointer
 - [ ] DEFERRED (owner-gated): Authenticode cert, Apple notarization, updater keypair, winget manifest
 
 ## Tier 5 — Diagnostics & governance
-- [ ] Panic hook → crash file (message + backtrace) in the log dir; works under `panic = "abort"`; GUI + CLI
-- [ ] "Open logs" affordance: `open_logs_dir` command + nav-rail button; CLI `prun logs`
-- [ ] Per-path scan-error samples: `Measured` collects capped samples → `ScanEvent::Done.error_samples` → UI toast detail + CLI `--json`
-- [ ] Governance docs: SECURITY.md, CONTRIBUTING.md, .github/CODEOWNERS, issue + PR templates
-- [ ] ARCHITECTURE.md: module map, data flow, the load-bearing invariants
+- [x] Panic hook → crash file (message + backtrace) in the log dir; works under `panic = "abort"`; GUI + CLI
+- [x] "Open logs" affordance: `open_logs_dir` command + nav-rail button; CLI `prun logs`
+- [x] Per-path scan-error samples: `Measured` collects capped samples → `ScanEvent::Done.error_samples` → UI toast detail + CLI `--json`
+- [x] Governance docs: SECURITY.md, CONTRIBUTING.md, .github/CODEOWNERS, issue + PR templates
+- [x] ARCHITECTURE.md: module map, data flow, the load-bearing invariants
 
 ## Tier 6 — Robustness & scale
-- [ ] Backend scan-in-flight guard (managed flag; concurrent scan rejected loudly; reset on all exits) + test
-- [ ] Junction safety (Windows): test that a junction inside the tree never offers/sizes its target; clean removes the link only; fix if the test exposes an escape
-- [ ] Frontend: extract `backend.ts` (every invoke/Channel + browser simulators); main.ts / rules-editor.ts consume it
-- [ ] DTO contract fixtures: committed JSON checked by a Rust serde test AND a Vitest type/shape test
-- [ ] Debounce the age input
-- [ ] eslint (typescript-eslint) + prettier (isolated format commit) + CI lint step
-- [ ] Vitest coverage (informational) in CI
-- [ ] E2E smoke: evaluate tauri-driver feasibility; implement if verifiable here, else scaffold + document honestly
+- [x] Backend scan-in-flight guard (managed flag; concurrent scan rejected loudly; reset on all exits) + test
+- [x] Junction safety (Windows): tests prove the walkers/clean DON'T traverse junctions (no fix needed — behavior pinned)
+- [x] Frontend: extract `backend.ts` (every invoke/Channel + browser simulators); main.ts / rules-editor.ts consume it
+- [x] DTO contract fixtures: committed JSON checked by a Rust serde test AND a Vitest type/shape test
+- [x] Debounce the age input
+- [x] eslint (typescript-eslint) + prettier (isolated format commit) + CI lint step
+- [x] Vitest coverage (informational) in CI
+- [x] E2E smoke: evaluated → DEFERRED with rationale (below)
 
 ## Constraints (unchanged from Tier 0-3)
 - No framework, no single-impl trait ceremony, no async-runtime swap
 - Public `#[command]` surface stays compatible (additive only)
 - Each commit verified: cargo test + clippy -D warnings + fmt --check + tsc + vite build + vitest green
+
+## Review
+
+All non-owner-gated Tier 4–6 items landed on `feat/enterprise-grade-tier4-6`
+as 10 commits, each verified green before the next. Final state:
+**cargo test 50/50** (was 39), **vitest 18/18** (was 15), clippy/fmt/eslint/
+prettier clean, tsc + vite build clean.
+
+**Commits**
+- `deb6fb3` Tier 4 — macOS CI, Windows clippy, SHA-pinned actions, SBOM + provenance
+- `99f5f17` Tier 5 — crash reports on panic + Open Logs (GUI button, `prun logs`)
+- `d9a5b3e` Tier 5 — per-path read-error samples end to end
+- `bf3ca04` Tier 5 — governance docs + ARCHITECTURE.md
+- `291a409` Tier 6 — backend scan serialization + junction-safety tests
+- `1ae0ab3` Tier 6 — backend.ts bridge extraction + age-input debounce
+- `e7326b0` Tier 6 — Rust↔TS wire-contract fixtures
+- `4f88941` Tier 6 — eslint/prettier/coverage tooling + lint fixes
+- `90bc138` Tier 6 — one-off prettier reformat (rustfmt-commit precedent)
+- `8d1f27c` Tier 6 — CI gates lint + format, reports coverage
+
+**Key decisions**
+- **Junction risk resolved by evidence, not guards.** The review flagged NTFS
+  junction traversal as unverified. Tests on real NTFS (mklink /J) prove the
+  `ignore` walker, `walkdir` sizing, and `clean` all treat junctions as
+  non-traversable links — so no runtime canonicalization layer was added;
+  the tests pin the behavior instead.
+- **ScanLock acquired BEFORE Reclaimable.reset()** so a refused second scan
+  can never clear the running scan's offers; an RAII guard releases on every
+  exit path.
+- **Crash file is written synchronously** in the panic hook — the async
+  tracing buffer is lost under `panic = "abort"`, so `tracing` must never be
+  the crash channel.
+- **Wire-contract triangle**: Rust pins fixture==serde; Vitest pins
+  fixture==types.ts (typed literals, so tsc itself participates). Closes the
+  hand-mirrored-DTO drift gap without codegen.
+- **prettier scoped to src/ TS** — styles.css keeps its deliberate one-line
+  declaration idiom. First `.prettierignore` attempt (`*` + `!src/**/*.ts`)
+  silently matched NOTHING (gitignore can't re-include under an excluded
+  dir) — caught because the instant green was suspicious; see lessons.md.
+
+**Deferred — owner-gated (config/secrets only, scaffolding is ready)**
+1. Windows Authenticode + macOS notarization: buy/issue certs, add the
+   secrets from RELEASING.md; the release workflow already consumes them.
+2. Updater activation: generate the keypair, set pubkey/endpoint +
+   `createUpdaterArtifacts` (RELEASING.md §Auto-updates).
+3. winget/homebrew manifests: needs a published, signed release first.
+4. **Push to GitHub**: no remote exists yet — every CI/release/attestation
+   workflow is parse-checked but has never executed. First push should be
+   watched. Replace `OWNER` placeholders (CODEOWNERS, SECURITY.md, issue
+   config, CHANGELOG links) when the remote exists.
+
+**E2E smoke — evaluated, deferred with rationale.** tauri-driver needs a
+platform WebDriver (msedgedriver matching the local WebView2; webkit2gtk-
+driver on Linux) plus a built app bundle, and its run is a real GUI session.
+With no GitHub remote, a CI e2e job cannot be executed even once — it would
+be unverifiable scaffolding, which this repo's own lessons warn against
+(don't claim coverage a run never exercised). The CLI tests already exercise
+scan/clean/rules end-to-end below the webview. When the repo has a remote:
+add a Linux `e2e` job (webkit2gtk-driver + xvfb + WebdriverIO per the Tauri
+docs), one flow — launch → scan fixture tree → assert rows → clean one →
+assert gone — and gate it once it's green twice in a row.
 

@@ -6,6 +6,40 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- **Crash reports** — a panic hook writes the panic message, location, and
+  backtrace to `crash-<time>.txt` in the log dir (release builds abort with
+  stripped symbols, so this file is the one diagnostic that survives). A
+  **Logs** button on the nav rail opens the folder; `prun logs` prints it.
+- **Concrete read-error examples** — "N items unreadable" now carries up to 5
+  "path: reason" samples: appended to the scan toast, listed by the CLI, in
+  `--json` as `error_samples`, and warn-logged for correlation.
+- **Backend scan serialization** — a second scan invoked while one runs is
+  refused at the backend (the per-window UI guard wasn't enough for the
+  app-global `Reclaimable`/`Cancel` state).
+- **Junction-safety tests** (Windows): the discovery walker, the sizing walk,
+  and `clean` are pinned to treat NTFS junctions as non-traversable links —
+  nothing behind a junction is offered, sized, or deleted.
+- **Wire-contract fixtures** — shared JSON fixtures are pinned by a Rust serde
+  test and a typed Vitest test, so a DTO rename breaks a test instead of
+  silently `undefined`-ing a frontend field.
+- **Supply-chain scaffolding** — release builds attach build-provenance
+  attestations (`gh attestation verify`) and a CycloneDX SBOM artifact; all
+  GitHub Actions are pinned to commit SHAs; macOS joined CI (clippy + tests)
+  and the Windows job now runs clippy.
+- **Governance docs** — SECURITY.md (private disclosure, deletion-bug scope),
+  CONTRIBUTING.md, CODEOWNERS, issue forms, a PR template, and an
+  ARCHITECTURE.md recording the module shape and load-bearing invariants.
+- **Frontend lint/format** — eslint (typescript-eslint) + prettier, gated in
+  CI alongside a vitest coverage report.
+
+### Changed
+- **`backend.ts` is now the only frontend file that talks to Tauri** — every
+  invoke/Channel sits behind a typed function; sample preview data moved to
+  `sample-data.ts`; the age filter re-render is debounced while typing.
+- The rules editor's status line reports a status-read failure instead of
+  going silently blank.
+
 ## [0.2.0] - 2026-06-11
 
 ### Security
