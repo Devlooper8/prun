@@ -1,0 +1,7 @@
+# Prettier owns src/ TypeScript only. Everything outside src/ stays
+# hand-formatted (workflows, docs, configs, fixtures).
+/*
+!/src/
+# styles.css deliberately uses compact one-line declaration blocks — an idiom
+# Prettier would expand wholesale; index.html isn't under src/.
+src/styles.css

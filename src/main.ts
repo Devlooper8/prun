@@ -181,7 +181,8 @@ function render() {
       // empty set == "all on"; first manual toggle materialises the set
       if (state.catsOn.size === 0)
         res.categories.forEach((c) => state.catsOn.add(c.id));
-      cb.checked ? state.catsOn.add(cat.id) : state.catsOn.delete(cat.id);
+      if (cb.checked) state.catsOn.add(cat.id);
+      else state.catsOn.delete(cat.id);
       if (state.catsOn.size === res.categories.length) state.catsOn.clear();
       reconcileSelection();
       render();
@@ -237,7 +238,8 @@ function renderGroup(g: ProjectGroup, root: string): HTMLLIElement {
     childrenUl.toggleAttribute("hidden", !open);
     arrow.classList.toggle("is-open", open);
     arrow.setAttribute("aria-expanded", String(open));
-    open ? state.expanded.add(g.name) : state.expanded.delete(g.name);
+    if (open) state.expanded.add(g.name);
+    else state.expanded.delete(g.name);
   };
   arrow.addEventListener("click", (e) => {
     e.stopPropagation();
@@ -250,8 +252,10 @@ function renderGroup(g: ProjectGroup, root: string): HTMLLIElement {
 
   groupCb.addEventListener("change", () => {
     const on = groupCb.checked;
-    for (const loc of g.locations)
-      on ? state.selected.add(loc.path) : state.selected.delete(loc.path);
+    for (const loc of g.locations) {
+      if (on) state.selected.add(loc.path);
+      else state.selected.delete(loc.path);
+    }
     childrenUl.querySelectorAll<HTMLInputElement>(".cb").forEach((cb) => (cb.checked = on));
     groupCb.indeterminate = false;
     updateFooter();
@@ -281,7 +285,8 @@ function renderChild(
     <span class="loc__size">${fmtSize(loc.size)}</span>`;
   const cb = li.querySelector<HTMLInputElement>(".cb")!;
   const sync = () => {
-    cb.checked ? state.selected.add(loc.path) : state.selected.delete(loc.path);
+    if (cb.checked) state.selected.add(loc.path);
+    else state.selected.delete(loc.path);
     refreshGroupCheckbox(groupCb, g);
     updateFooter();
   };
@@ -547,10 +552,13 @@ export function toast(msg: string) {
 
 /* ───────────────────────── Wiring ────────────────────────────── */
 function wire() {
-  // window controls — only buttons that declare a window action (not the
-  // settings gear / close button, which share the .wbtn style but aren't controls)
+  // window controls — only buttons that declare a window action (not buttons
+  // that merely share the .wbtn style). The [data-win] selector guarantees the
+  // dataset value exists; the HTML is the source of the three action names.
   document.querySelectorAll<HTMLButtonElement>(".wbtn[data-win]").forEach((b) =>
-    b.addEventListener("click", () => windowAction(b.dataset.win as any))
+    b.addEventListener("click", () =>
+      windowAction(b.dataset.win as "minimize" | "maximize" | "close")
+    )
   );
 
   // rescan + system caches + folder picker
