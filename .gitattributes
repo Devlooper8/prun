@@ -1,0 +1,10 @@
+# Normalize line endings. The repo stores LF and every checkout — Windows
+# included — gets LF, so `core.autocrlf=true` no longer yields a CRLF working
+# tree that makes Prettier's `endOfLine: lf` check fail locally while passing
+# in CI. `text=auto` lets git auto-detect and skip binary files.
+* text=auto eol=lf
+
+# Be explicit about the binary assets so they're never EOL-converted.
+*.png binary
+*.ico binary
+*.icns binary
