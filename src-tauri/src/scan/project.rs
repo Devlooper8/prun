@@ -396,27 +396,20 @@ fn match_dir_entry(p: &Path, segs: &[String]) -> Option<PathBuf> {
             _ => None,
         })
         .collect();
-    if comps.len() < segs.len() {
+    let start = comps.len().checked_sub(segs.len())?;
+    if !comps[start..]
+        .iter()
+        .zip(segs)
+        .all(|(c, s)| norm_seg(&c.to_string_lossy()).as_ref() == s.as_str())
+    {
         return None;
-    }
-    let start = comps.len() - segs.len();
-    for (i, seg) in segs.iter().enumerate() {
-        if norm_seg(&comps[start + i].to_string_lossy()).as_ref() != seg.as_str() {
-            return None;
-        }
     }
     p.ancestors().nth(segs.len()).map(|r| r.to_path_buf())
 }
 
 fn has_ancestor_in(p: &Path, set: &HashSet<PathBuf>) -> bool {
-    let mut cur = p.parent();
-    while let Some(a) = cur {
-        if set.contains(a) {
-            return true;
-        }
-        cur = a.parent();
-    }
-    false
+    // ancestors() yields `p` first, so skip it and start at the parent.
+    p.ancestors().skip(1).any(|a| set.contains(a))
 }
 
 /// A candidate that has passed every size-independent filter, awaiting sizing.

@@ -51,7 +51,7 @@ export function rollupCategories(locations: Location[]): Category[] {
 /** Grouping key: the project folder for a normal scan, or the cache name in the
  *  caches view (cache paths are absolute, so the project segment is the meaningful
  *  label there). */
-export function groupKey(loc: Location, root: string, mode: ScanMode): string {
+function groupKey(loc: Location, root: string, mode: ScanMode): string {
   if (mode === "caches") return loc.project || loc.category;
   return projectKeyOf(loc.path, root);
 }
@@ -62,13 +62,7 @@ export function groupByProject(
   root: string,
   mode: ScanMode,
 ): ProjectGroup[] {
-  const groups = new Map<string, Location[]>();
-  for (const loc of locations) {
-    const key = groupKey(loc, root, mode);
-    let bucket = groups.get(key);
-    if (!bucket) groups.set(key, (bucket = []));
-    bucket.push(loc);
-  }
+  const groups = Map.groupBy(locations, (loc) => groupKey(loc, root, mode));
   return [...groups]
     .map(([name, locs]) => ({
       name,

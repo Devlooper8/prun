@@ -188,14 +188,14 @@ pub async fn clean(
         ));
     }
     tauri::async_runtime::spawn_blocking(move || {
-        run_clean(&paths, to_trash, &move |event| {
+        run_clean(&paths, to_trash, &mut move |event| {
             // A dropped receiver (window closed mid-clean) is not worth aborting
             // the deletions over — just stop trying to deliver.
             let _ = on_event.send(event);
         })
     })
     .await
-    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 /// Report where the rules override file lives and whether it is in effect, so

@@ -160,3 +160,24 @@ rather than leave formatting advisory. **Pattern:** enforced formatting removes
 bikeshedding and is the enterprise norm; apply it as an isolated, clearly-labeled
 commit so it never obscures behavior changes — and one trailing-comment-after-a-
 statement reflows oddly, so prefer comments on their own line.
+
+## An over-engineering audit flags deliberate staging as "dead" — verify before deleting
+The ponytail-audit (and its subagents) ranked `tauri-plugin-updater` as the #2 cut
+(`delete:` dead dependency) and proposed dropping `tracing-subscriber`'s `env-filter`
+feature — both "confident". On reading the actual repo both were WRONG to apply:
+- The updater is deliberate, documented release-prep (RELEASING.md §Auto-updates,
+  release.yml secrets, SECURITY.md scope) and was the subject of a recent hard-won
+  boot-crash fix ([[compile-verified ≠ boot-verified]], commit 6fdc9cb). Deleting it
+  would undo that work and falsify the docs. Held for the user, not auto-applied.
+- `env-filter` backs the **documented** `PRUN_LOG` knob (`EnvFilter::try_from_env`),
+  and `EnvFilter` *is* that feature — the suggested `EnvFilter::new("info")`
+  replacement still needs it, so the finding was self-contradictory.
+**Patterns:**
+- A finding can be correct that something is *currently inert* yet wrong that it
+  should be *deleted* — inert-by-design ≠ bloat. Before removing, grep the docs
+  (RELEASING/SECURITY/CHANGELOG), lessons.md, and git log for the thing's name; if
+  it's deliberate staging or a recent fix, surface it instead of reverting it.
+- Subagent audit output is a lead, not an instruction — read the target file and its
+  callers/docs yourself before applying, especially for the highest-ranked cuts.
+- "Apply the confident cuts" means the ones that survive that check; narrate which
+  you held and why rather than literally applying everything labeled confident.

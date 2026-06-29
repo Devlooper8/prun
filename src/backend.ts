@@ -25,7 +25,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /** Callbacks the scan drives as progress streams in. */
 export interface ScanHandlers {
-  onDiscovering(scanned: number): void;
+  onDiscovering(): void;
   onDiscovered(total: number): void;
   onLocated(location: Location, done: number, total: number): void;
   onDone(root: string, categories: Category[], errors: number, errorSamples: string[]): void;
@@ -35,7 +35,7 @@ export interface ScanHandlers {
 function dispatch(h: ScanHandlers, ev: ScanEvent): void {
   switch (ev.kind) {
     case "discovering":
-      h.onDiscovering(ev.scanned);
+      h.onDiscovering();
       break;
     case "discovered":
       h.onDiscovered(ev.total);
@@ -97,7 +97,7 @@ async function simulateScan(h: ScanHandlers): Promise<void> {
   for (let i = 1; i <= 6; i++) {
     if (browserScanCancelled) return h.onDone(SAMPLE.root, [], 0, []);
     await delay(110);
-    h.onDiscovering(i * 240);
+    h.onDiscovering();
   }
   const locs = SAMPLE.locations;
   h.onDiscovered(locs.length);
@@ -117,7 +117,7 @@ async function simulateCaches(h: ScanHandlers): Promise<void> {
   for (let i = 1; i <= 3; i++) {
     if (browserScanCancelled) return h.onDone("System caches", [], 0, []);
     await delay(120);
-    h.onDiscovering(i * 2);
+    h.onDiscovering();
   }
   h.onDiscovered(caches.length);
   let done = 0;
@@ -134,7 +134,6 @@ export interface CleanHandlers {
   onRemoving(path: string, done: number, total: number): void;
   onRemoved(path: string, done: number, total: number): void;
   onFailed(path: string, error: string, done: number, total: number): void;
-  onDone(removed: number, failed: number): void;
 }
 
 /** Route one streamed clean Channel event to the handler set. */
@@ -148,9 +147,6 @@ function dispatchClean(h: CleanHandlers, ev: CleanEvent): void {
       break;
     case "failed":
       h.onFailed(ev.path, ev.error, ev.done, ev.total);
-      break;
-    case "done":
-      h.onDone(ev.removed, ev.failed);
       break;
   }
 }
@@ -192,7 +188,6 @@ async function simulateClean(paths: string[], h: CleanHandlers): Promise<void> {
       h.onRemoved(path, removed + failed, total);
     }
   }
-  h.onDone(removed, failed);
 }
 
 /** Native folder picker. `null` when cancelled or in the browser preview. */

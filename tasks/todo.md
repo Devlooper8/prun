@@ -655,3 +655,45 @@ add a Linux `e2e` job (webkit2gtk-driver + xvfb + WebdriverIO per the Tauri
 docs), one flow — launch → scan fixture tree → assert rows → clean one →
 assert gone — and gate it once it's green twice in a row.
 
+---
+
+# ponytail-audit — apply confident cuts (2026-06-29)
+
+Applying the confident, no-conflict findings from the repo-wide over-engineering audit.
+
+## Rust
+- [ ] R2 `clean()` emit `&(dyn Fn + Sync)` → `&mut dyn FnMut`; return `Result<(),String>` → `()`
+      (clean.rs sig+body+2 tests, commands.rs, cli.rs cmd_clean → plain locals)
+- [ ] R3 store.rs `load_matcher()` → `Matcher::compile(load_rules())`; inline read/parse/warn into `load_rules` (parse-only warn preserved)
+- [ ] R4 project.rs `has_ancestor_in` → `ancestors().skip(1).any()`; `match_dir_entry` → `checked_sub()? + zip/all`
+
+## Frontend
+- [ ] T1 main.ts `runScanInto` helper; `showScanbar`→`scanDiscovering`; drop `onDiscovering` scanned use; drop `onDone` consumer
+- [ ] T2 backend.ts drop `CleanHandlers.onDone`+`case "done"`; drop `ScanHandlers.onDiscovering` param
+- [ ] T3 rules-editor.ts `commonHeaderFields`+`appendNote`; `SECTIONS` map; Map.groupBy (if lib bump clean)
+- [ ] T4 grouping.ts Map.groupBy; drop `groupKey` export
+- [ ] T5 tsconfig.json bump `lib` ES2024 (only if Map.groupBy applied)
+- [ ] C1 vite.config.ts drop `build.sourcemap: false`
+
+## Verify
+- [ ] cargo test / clippy / fmt --check ; npm test / tsc / eslint / prettier --check
+
+## HELD — not applied
+- updater dep removal — CONFLICT with deliberate documented release-prep (RELEASING.md, release.yml, SECURITY.md, lessons.md, fix 6fdc9cb). Surfaced to user.
+- tracing env-filter drop — live documented PRUN_LOG feature (`EnvFilter::try_from_env`). Skip.
+- worker-count min(8) — deliberate oversubscription guard. Skip.
+- tsconfig/eslint noUnused dedup — marginal, ambiguous direction. Skip.
+
+## Review — DONE (all applied cuts verified)
+All applied: R2, R3, R4, T1, T2, T3 (a/b/c), C1. **−155 net lines** (157 ins / 312 del) across 11 files.
+- R3 refinement: kept the parse-only warn by inlining read/parse into `load_rules`; gated the now-test-only `load_rules_from` with `#[cfg(test)]` to avoid a dead_code warning.
+- R2: `clean` → `&mut dyn FnMut` + `()` return; cli.rs `cmd_clean` lost its `Mutex<Vec>` + 2 `AtomicU64` + the dead `Err` branch.
+- T1: `runScanInto` driver; `doScan`/`doScanCaches` now ~10-line wrappers; `showScanbar` calls `scanDiscovering`.
+- T3c needed `lib: ES2024` (TS 5.6) for `Map.groupBy` — WebView2/esnext target ships it as-is.
+
+**Verification (all green):**
+- Rust: `cargo test` 50/50 · `clippy -D warnings` exit 0 · `fmt --check` clean
+- Frontend: `tsc --noEmit` clean · `vite build` 19 modules · `vitest` 18/18 · `eslint` clean · `prettier --check` clean
+
+Not committed — left in the working tree for review.
+

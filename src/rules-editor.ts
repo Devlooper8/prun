@@ -171,10 +171,8 @@ function stringList(items: string[], placeholder: string, onChange: () => void):
 
 /* ── list pane ─────────────────────────────────────────────────── */
 function currentEntries(): Entry[] {
-  const m = ed.model!;
-  return (
-    ed.section === "rule" ? m.rule : ed.section === "junk" ? m.junk : m.global_cache
-  ) as Entry[];
+  // never called for the "defaults" section (it has no list pane)
+  return SECTIONS[ed.section as ListSection].list(ed.model!);
 }
 
 function matchEntry(e: Entry, q: string): boolean {
@@ -224,13 +222,7 @@ function renderGroups() {
     return;
   }
 
-  const groups = new Map<string, Entry[]>();
-  for (const e of filtered) {
-    const key = e.ecosystem || "(unsorted)";
-    let arr = groups.get(key);
-    if (!arr) groups.set(key, (arr = []));
-    arr.push(e);
-  }
+  const groups = Map.groupBy(filtered, (e) => e.ecosystem || "(unsorted)");
 
   for (const key of [...groups.keys()].sort()) {
     const items = groups.get(key)!;
@@ -340,6 +332,57 @@ function formHead(titleText: string): { head: HTMLDivElement; title: HTMLSpanEle
   return { head, title };
 }
 
+/** The id / name / ecosystem fields every entry form opens with, returned as an
+ *  un-appended grid so a caller can add more (the cache form appends `platform`).
+ *  `titled` refreshes the form title + list row after an id/name edit. */
+function commonHeaderFields(e: Entry, titled: () => void): HTMLDivElement {
+  const grid = el("div", "re-grid");
+  grid.appendChild(
+    field(
+      "id",
+      textInput(e.id, "unique-id", (v) => {
+        e.id = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "name",
+      textInput(e.name, "Display name", (v) => {
+        e.name = v;
+        markDirty();
+        titled();
+      }),
+    ),
+  );
+  grid.appendChild(
+    field(
+      "ecosystem",
+      ecosystemInput(e.ecosystem, (v) => {
+        e.ecosystem = v;
+        markDirty();
+        syncSelectedRow();
+      }),
+    ),
+  );
+  return grid;
+}
+
+/** The trailing optional-note field every entry form ends with. */
+function appendNote(wrap: HTMLElement, e: Entry): void {
+  wrap.appendChild(
+    field(
+      "note",
+      noteArea(e.note, (v) => {
+        e.note = v;
+        markDirty();
+      }),
+    ),
+  );
+}
+
 function renderRuleForm(r: RuleDef): HTMLElement {
   const wrap = el("div", "re-form");
   const { head, title } = formHead(r.name || r.id || "(new rule)");
@@ -349,38 +392,7 @@ function renderRuleForm(r: RuleDef): HTMLElement {
     syncSelectedRow();
   };
 
-  const grid = el("div", "re-grid");
-  grid.appendChild(
-    field(
-      "id",
-      textInput(r.id, "unique-id", (v) => {
-        r.id = v;
-        markDirty();
-        titled();
-      }),
-    ),
-  );
-  grid.appendChild(
-    field(
-      "name",
-      textInput(r.name, "Display name", (v) => {
-        r.name = v;
-        markDirty();
-        titled();
-      }),
-    ),
-  );
-  grid.appendChild(
-    field(
-      "ecosystem",
-      ecosystemInput(r.ecosystem, (v) => {
-        r.ecosystem = v;
-        markDirty();
-        syncSelectedRow();
-      }),
-    ),
-  );
-  wrap.appendChild(grid);
+  wrap.appendChild(commonHeaderFields(r, titled));
 
   wrap.appendChild(
     field("markers", stringList(r.markers, "+ marker (Cargo.toml, *.csproj…)", markDirty)),
@@ -414,15 +426,7 @@ function renderRuleForm(r: RuleDef): HTMLElement {
   );
   wrap.appendChild(toggles);
 
-  wrap.appendChild(
-    field(
-      "note",
-      noteArea(r.note, (v) => {
-        r.note = v;
-        markDirty();
-      }),
-    ),
-  );
+  appendNote(wrap, r);
   return wrap;
 }
 
@@ -435,38 +439,7 @@ function renderJunkForm(j: JunkDef): HTMLElement {
     syncSelectedRow();
   };
 
-  const grid = el("div", "re-grid");
-  grid.appendChild(
-    field(
-      "id",
-      textInput(j.id, "unique-id", (v) => {
-        j.id = v;
-        markDirty();
-        titled();
-      }),
-    ),
-  );
-  grid.appendChild(
-    field(
-      "name",
-      textInput(j.name, "Display name", (v) => {
-        j.name = v;
-        markDirty();
-        titled();
-      }),
-    ),
-  );
-  grid.appendChild(
-    field(
-      "ecosystem",
-      ecosystemInput(j.ecosystem, (v) => {
-        j.ecosystem = v;
-        markDirty();
-        syncSelectedRow();
-      }),
-    ),
-  );
-  wrap.appendChild(grid);
+  wrap.appendChild(commonHeaderFields(j, titled));
 
   wrap.appendChild(field("dirs", stringList(j.dirs, "+ dir (.ccls-cache…)", markDirty)));
   wrap.appendChild(field("globs", stringList(j.globs, "+ glob (.DS_Store, *.swp…)", markDirty)));
@@ -481,15 +454,7 @@ function renderJunkForm(j: JunkDef): HTMLElement {
   );
   wrap.appendChild(toggles);
 
-  wrap.appendChild(
-    field(
-      "note",
-      noteArea(j.note, (v) => {
-        j.note = v;
-        markDirty();
-      }),
-    ),
-  );
+  appendNote(wrap, j);
   return wrap;
 }
 
@@ -503,37 +468,7 @@ function renderCacheForm(c: CacheDef): HTMLElement {
     syncSelectedRow();
   };
 
-  const grid = el("div", "re-grid");
-  grid.appendChild(
-    field(
-      "id",
-      textInput(c.id, "unique-id", (v) => {
-        c.id = v;
-        markDirty();
-        titled();
-      }),
-    ),
-  );
-  grid.appendChild(
-    field(
-      "name",
-      textInput(c.name, "Display name", (v) => {
-        c.name = v;
-        markDirty();
-        titled();
-      }),
-    ),
-  );
-  grid.appendChild(
-    field(
-      "ecosystem",
-      ecosystemInput(c.ecosystem, (v) => {
-        c.ecosystem = v;
-        markDirty();
-        syncSelectedRow();
-      }),
-    ),
-  );
+  const grid = commonHeaderFields(c, titled);
   grid.appendChild(
     field(
       "platform",
@@ -548,15 +483,7 @@ function renderCacheForm(c: CacheDef): HTMLElement {
   wrap.appendChild(
     field("paths", stringList(c.paths, "+ path (~/.cargo/registry/cache…)", markDirty)),
   );
-  wrap.appendChild(
-    field(
-      "note",
-      noteArea(c.note, (v) => {
-        c.note = v;
-        markDirty();
-      }),
-    ),
-  );
+  appendNote(wrap, c);
   return wrap;
 }
 
@@ -638,22 +565,21 @@ const blankCache = (): CacheDef => ({
   note: null,
 });
 
+type ListSection = Exclude<Section, "defaults">;
+
+/** The three editable list sections: where each entry array lives in the model and
+ *  how to mint a blank entry. (`defaults` is a singleton form, not a list, so the
+ *  three callers below only ever run for a list section.) */
+const SECTIONS: Record<ListSection, { list: (m: RuleFile) => Entry[]; blank: () => Entry }> = {
+  rule: { list: (m) => m.rule, blank: blankRule },
+  junk: { list: (m) => m.junk, blank: blankJunk },
+  global_cache: { list: (m) => m.global_cache, blank: blankCache },
+};
+
 function onAdd() {
-  const m = ed.model!;
-  let e: Entry;
-  if (ed.section === "rule") {
-    const r = blankRule();
-    m.rule.unshift(r);
-    e = r;
-  } else if (ed.section === "junk") {
-    const j = blankJunk();
-    m.junk.unshift(j);
-    e = j;
-  } else {
-    const c = blankCache();
-    m.global_cache.unshift(c);
-    e = c;
-  }
+  const sec = SECTIONS[ed.section as ListSection];
+  const e = sec.blank();
+  sec.list(ed.model!).unshift(e);
   ed.selected = e;
   markDirty();
   renderGroups();
@@ -662,19 +588,11 @@ function onAdd() {
 }
 
 function deleteSelected() {
-  const m = ed.model!;
   const e = ed.selected;
   if (!e) return;
-  if (ed.section === "rule") {
-    const i = m.rule.indexOf(e as RuleDef);
-    if (i >= 0) m.rule.splice(i, 1);
-  } else if (ed.section === "junk") {
-    const i = m.junk.indexOf(e as JunkDef);
-    if (i >= 0) m.junk.splice(i, 1);
-  } else {
-    const i = m.global_cache.indexOf(e as CacheDef);
-    if (i >= 0) m.global_cache.splice(i, 1);
-  }
+  const list = SECTIONS[ed.section as ListSection].list(ed.model!);
+  const i = list.indexOf(e);
+  if (i >= 0) list.splice(i, 1);
   ed.selected = null;
   markDirty();
   renderGroups();

@@ -10,6 +10,7 @@ import {
   filterLocations,
 } from "./grouping";
 import {
+  type ScanHandlers,
   runScan,
   runScanCaches,
   runClean,
@@ -101,9 +102,7 @@ function visibleLocations(): Location[] {
 function showScanbar(rootLabel: string) {
   scanbar.hidden = false;
   scanRoot.textContent = rootLabel;
-  scanPct.textContent = "";
-  scanbar.classList.add("scanbar--indeterminate");
-  scanFill.style.width = ""; // clear inline width so the CSS marquee applies
+  scanDiscovering(); // indeterminate marquee + cleared pct/fill
   scanCancel.hidden = false; // scans are cancellable
   scanCancel.disabled = false;
   scanCancel.textContent = "Cancel";
@@ -316,34 +315,39 @@ function updateFooter() {
 }
 
 /* ───────────────────────── Actions ───────────────────────────── */
-async function doScan() {
+/** Shared driver for both scans: reset state, stream into a live result, then
+ *  (project scan only) auto-select everything and toast a summary. `runner` opens
+ *  the matching backend stream with the shared handler set. */
+async function runScanInto(
+  cfg: {
+    mode: "scan" | "caches";
+    rootLabel: string;
+    noun: string; // summary toast: "location" | "system cache"
+    failVerb: string; // failure toast / warn: "Scan" | "Cache scan"
+    autoSelectAll: boolean;
+  },
+  runner: (handlers: ScanHandlers) => Promise<void>,
+) {
   if (state.scanning || state.cleaning) return; // ignore overlapping scans/cleans
-  const opts: ScanOptions = {
-    root: rootInput.value.trim() || "~/Projects",
-    minAgeDays: state.filters.age ? state.ageDays : null,
-    skipGitTracked: state.filters.git,
-    respectPrunignore: state.filters.prunignore,
-  };
-
   // Reset to an empty live result the stream will fill in.
   state.scanning = true;
-  state.mode = "scan";
+  state.mode = cfg.mode;
   rescanBtn.disabled = true;
   cachesBtn.disabled = true;
-  state.result = { root: opts.root, categories: [], locations: [] };
+  state.result = { root: cfg.rootLabel, categories: [], locations: [] };
   state.selected.clear();
   state.catsOn.clear();
   state.expanded.clear();
   state.failed.clear();
   let maxDone = 0;
-  let scanErrors = 0;
-  let scanErrorSamples: string[] = [];
+  let errors = 0;
+  let errorSamples: string[] = [];
 
-  showScanbar(opts.root);
+  showScanbar(cfg.rootLabel);
   render();
 
   try {
-    await runScan(opts, {
+    await runner({
       onDiscovering() {
         scanDiscovering();
       },
@@ -357,24 +361,24 @@ async function doScan() {
         scanSizing(maxDone / total);
         scheduleRender();
       },
-      onDone(root, categories, errors, errorSamples) {
+      onDone(root, categories, e, samples) {
         state.result!.root = root;
         state.result!.categories = categories;
-        scanErrors = errors;
-        scanErrorSamples = errorSamples;
+        errors = e;
+        errorSamples = samples;
       },
     });
 
-    // select everything reclaimable by default — matches the screenshot
-    state.selected = new Set(visibleLocations().map((l) => l.path));
+    if (cfg.autoSelectAll) state.selected = new Set(visibleLocations().map((l) => l.path));
     hideScanbar();
     render();
-    if (scanErrorSamples.length > 0) console.warn("unreadable during scan:", scanErrorSamples);
-    toast(scanSummary(state.result.locations.length, scanErrors, "location", scanErrorSamples));
+    if (errorSamples.length > 0)
+      console.warn(`unreadable during ${cfg.failVerb.toLowerCase()}:`, errorSamples);
+    toast(scanSummary(state.result.locations.length, errors, cfg.noun, errorSamples));
   } catch (err) {
     hideScanbar();
     render();
-    toast(`Scan failed: ${err}`);
+    toast(`${cfg.failVerb} failed: ${err}`);
   } finally {
     state.scanning = false;
     rescanBtn.disabled = false;
@@ -382,65 +386,32 @@ async function doScan() {
   }
 }
 
+function doScan() {
+  const opts: ScanOptions = {
+    root: rootInput.value.trim() || "~/Projects",
+    minAgeDays: state.filters.age ? state.ageDays : null,
+    skipGitTracked: state.filters.git,
+    respectPrunignore: state.filters.prunignore,
+  };
+  return runScanInto(
+    { mode: "scan", rootLabel: opts.root, noun: "location", failVerb: "Scan", autoSelectAll: true },
+    (handlers) => runScan(opts, handlers),
+  );
+}
+
 /** Scan the per-user system caches. A separate view: never auto-selected, since
  *  these are shared across projects and slow to rebuild. */
-async function doScanCaches() {
-  if (state.scanning || state.cleaning) return;
-  state.scanning = true;
-  state.mode = "caches";
-  rescanBtn.disabled = true;
-  cachesBtn.disabled = true;
-  state.result = { root: "System caches", categories: [], locations: [] };
-  state.selected.clear();
-  state.catsOn.clear();
-  state.expanded.clear();
-  state.failed.clear();
-  let maxDone = 0;
-  let cacheErrors = 0;
-  let cacheErrorSamples: string[] = [];
-
-  showScanbar("System caches");
-  render();
-
-  try {
-    await runScanCaches({
-      onDiscovering() {
-        scanDiscovering();
-      },
-      onDiscovered(total) {
-        maxDone = 0;
-        scanSizing(total === 0 ? 1 : 0);
-      },
-      onLocated(location, done, total) {
-        maxDone = Math.max(maxDone, done);
-        state.result!.locations.push(location);
-        scanSizing(maxDone / total);
-        scheduleRender();
-      },
-      onDone(root, categories, errors, errorSamples) {
-        state.result!.root = root;
-        state.result!.categories = categories;
-        cacheErrors = errors;
-        cacheErrorSamples = errorSamples;
-      },
-    });
-
-    hideScanbar();
-    render();
-    if (cacheErrorSamples.length > 0)
-      console.warn("unreadable during cache scan:", cacheErrorSamples);
-    toast(
-      scanSummary(state.result.locations.length, cacheErrors, "system cache", cacheErrorSamples),
-    );
-  } catch (err) {
-    hideScanbar();
-    render();
-    toast(`Cache scan failed: ${err}`);
-  } finally {
-    state.scanning = false;
-    rescanBtn.disabled = false;
-    cachesBtn.disabled = false;
-  }
+function doScanCaches() {
+  return runScanInto(
+    {
+      mode: "caches",
+      rootLabel: "System caches",
+      noun: "system cache",
+      failVerb: "Cache scan",
+      autoSelectAll: false,
+    },
+    (handlers) => runScanCaches(handlers),
+  );
 }
 
 /** Drop one location from the list + selection as its deletion confirms (and
@@ -490,7 +461,6 @@ async function doClean() {
         cleanProgress(path, done, total);
         scheduleRender();
       },
-      onDone() {},
     });
 
     hideScanbar();

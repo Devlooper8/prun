@@ -47,11 +47,7 @@ pub enum CleanEvent {
 /// path goes to the system Trash (recoverable), otherwise it is permanently
 /// removed. A path already absent counts as removed (its row should clear too).
 /// Per-path failures are reported and never abort the rest.
-pub fn clean(
-    paths: &[String],
-    to_trash: bool,
-    emit: &(dyn Fn(CleanEvent) + Sync),
-) -> Result<(), String> {
+pub fn clean(paths: &[String], to_trash: bool, emit: &mut dyn FnMut(CleanEvent)) {
     let total = paths.len();
     let mut removed = 0usize;
     let mut failed = 0usize;
@@ -92,7 +88,6 @@ pub fn clean(
         }
     }
     emit(CleanEvent::Done { removed, failed });
-    Ok(())
 }
 
 /// Permanently remove a file, directory, or symlink. A directory's contents are
@@ -113,7 +108,6 @@ fn remove_path(path: &Path) -> std::io::Result<()> {
 mod tests {
     use super::*;
     use crate::testsupport::{fresh_tmp, touch};
-    use std::sync::Mutex;
 
     #[test]
     fn clean_streams_and_removes() {
@@ -129,15 +123,14 @@ mod tests {
             missing.to_string_lossy().into_owned(),
         ];
 
-        let events: Mutex<Vec<CleanEvent>> = Mutex::new(Vec::new());
-        clean(&paths, false, &|ev| events.lock().unwrap().push(ev)).unwrap();
+        let mut events: Vec<CleanEvent> = Vec::new();
+        clean(&paths, false, &mut |ev| events.push(ev));
 
         let a_gone = !a.exists();
         let b_gone = !b.exists();
         let _ = fs::remove_dir_all(&root);
         assert!(a_gone && b_gone, "both artifact dirs must be deleted");
 
-        let events = events.into_inner().unwrap();
         let removed = events
             .iter()
             .filter(|e| matches!(e, CleanEvent::Removed { .. }))
@@ -204,7 +197,7 @@ mod tests {
         let link = root.join("link");
         crate::testsupport::junction(&link, &target);
 
-        clean(&[link.to_string_lossy().into_owned()], false, &|_| {}).unwrap();
+        clean(&[link.to_string_lossy().into_owned()], false, &mut |_| {});
 
         let link_gone = fs::symlink_metadata(&link).is_err();
         let kept = target.join("keep.txt").exists();

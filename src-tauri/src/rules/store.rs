@@ -28,18 +28,7 @@ fn override_path() -> Option<PathBuf> {
 /// millisecond) so edits to the override take effect on the next scan without
 /// restarting the app.
 pub(crate) fn load_matcher() -> Matcher {
-    if let Some(path) = override_path() {
-        if let Ok(text) = fs::read_to_string(&path) {
-            match toml::from_str::<RuleFile>(&text) {
-                Ok(rf) => return Matcher::compile(merge_over_embedded(rf)),
-                Err(e) => tracing::warn!(
-                    error = %e,
-                    "override rules.toml failed to parse; falling back to the embedded ruleset"
-                ),
-            }
-        }
-    }
-    Matcher::compile(toml::from_str(EMBEDDED).expect("embedded prun-rules.toml must parse"))
+    Matcher::compile(load_rules())
 }
 
 /// Where the override lives and whether it is currently in effect — surfaced in
@@ -114,13 +103,20 @@ pub fn ensure_override_file() -> Result<String, String> {
 /// falls back to embedded so the editor always opens with valid data.
 pub fn load_rules() -> RuleFile {
     if let Some(path) = override_path() {
-        if let Ok(rf) = load_rules_from(&path) {
-            return merge_over_embedded(rf);
+        if let Ok(text) = fs::read_to_string(&path) {
+            match toml::from_str::<RuleFile>(&text) {
+                Ok(rf) => return merge_over_embedded(rf),
+                Err(e) => tracing::warn!(
+                    error = %e,
+                    "override rules.toml failed to parse; falling back to the embedded ruleset"
+                ),
+            }
         }
     }
     toml::from_str(EMBEDDED).expect("embedded prun-rules.toml must parse")
 }
 
+#[cfg(test)]
 fn load_rules_from(path: &Path) -> Result<RuleFile, String> {
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     toml::from_str(&text).map_err(|e| e.to_string())

@@ -226,40 +226,27 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
         let _ = writeln!(out, "error: `clean` needs at least one path");
         return ExitCode::FAILURE;
     }
-    // `clean`'s emit is `&dyn Fn` (must be Sync), so the closure can't write to
-    // `out` or bump plain counters directly — buffer lines + tallies behind interior
-    // mutability and flush them after.
-    let lines: Mutex<Vec<String>> = Mutex::new(Vec::new());
-    let removed = AtomicU64::new(0);
-    let failed = AtomicU64::new(0);
-    let result = clean(&paths, !permanent, &|ev| match ev {
+    // `clean` streams sequentially over `&mut dyn FnMut`, so the closure can bump
+    // plain locals and buffer lines directly; flush them after.
+    let mut lines: Vec<String> = Vec::new();
+    let mut removed = 0u64;
+    let mut failed = 0u64;
+    clean(&paths, !permanent, &mut |ev| match ev {
         CleanEvent::Removed { path, .. } => {
-            removed.fetch_add(1, Ordering::Relaxed);
-            lines.lock().unwrap().push(format!("removed  {path}"));
+            removed += 1;
+            lines.push(format!("removed  {path}"));
         }
         CleanEvent::Failed { path, error, .. } => {
-            failed.fetch_add(1, Ordering::Relaxed);
-            lines
-                .lock()
-                .unwrap()
-                .push(format!("failed   {path}: {error}"));
+            failed += 1;
+            lines.push(format!("failed   {path}: {error}"));
         }
         _ => {}
     });
-    for line in lines.into_inner().unwrap() {
+    for line in lines {
         let _ = writeln!(out, "{line}");
     }
-    if let Err(e) = result {
-        let _ = writeln!(out, "error: {e}");
-        return ExitCode::FAILURE;
-    }
     let verb = if permanent { "deleted" } else { "trashed" };
-    let failed = failed.load(Ordering::Relaxed);
-    let _ = writeln!(
-        out,
-        "{verb} {}, {failed} failed",
-        removed.load(Ordering::Relaxed)
-    );
+    let _ = writeln!(out, "{verb} {removed}, {failed} failed");
     if failed > 0 {
         ExitCode::FAILURE
     } else {
