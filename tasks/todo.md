@@ -695,5 +695,21 @@ All applied: R2, R3, R4, T1, T2, T3 (a/b/c), C1. **−155 net lines** (157 ins /
 - Rust: `cargo test` 50/50 · `clippy -D warnings` exit 0 · `fmt --check` clean
 - Frontend: `tsc --noEmit` clean · `vite build` 19 modules · `vitest` 18/18 · `eslint` clean · `prettier --check` clean
 
-Not committed — left in the working tree for review.
+Committed as `5c97bbb` (refactor: trim over-engineering flagged by ponytail audit).
+
+---
+
+# ponytail-audit — 2nd pass (post-5c97bbb)
+
+Re-audited the deloused tree with two fresh subagents (extra scrutiny on the pass-1 refactor for self-bias). Found 5 small remainders; user said "apply whole list". **−31 net lines** (4 files, +42 / −73).
+
+- `runScanInto`: dropped the 5-field cfg → `(mode, rootLabel, runner)`, derive `noun`/`failVerb`/auto-select from `mode` (my own pass-1 over-parameterization). [main.ts]
+- `cmd_clean`: removed the vestigial `Vec` buffer + flush loop — closure writes to `out` directly now that `clean` is `&mut dyn FnMut` (incomplete edge of pass-1). [cli.rs]
+- Inlined 3 one-caller wrappers: `ecosystemInput`, `currentEntries`, `listScroll` (marginal; `ecosystemInput` became single-caller *because* the pass-1 form dedup routed it through `commonHeaderFields`). [rules-editor.ts]
+- `embedded()` helper for the 5× `toml::from_str(EMBEDDED).expect(...)` — DRY/consistency win (unifies two panic messages), ~line-neutral (helper def offsets call-site dedup). [store.rs]
+- Dropped dead `scanSummary` param defaults. [main.ts]
+
+HELD again (unchanged): updater (your decision), env-filter (load-bearing PRUN_LOG), walkdir→ignore (disputed/blocked), browser-preview (conditional), schema_version/CategoryId (contract).
+
+Verified all green: cargo test 50/50 · clippy 0 · fmt 0 ; build (tsc+vite) 0 · vitest 18/18 · eslint 0 · prettier 0. Working tree (uncommitted).
 

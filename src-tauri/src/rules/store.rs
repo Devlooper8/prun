@@ -31,6 +31,13 @@ pub(crate) fn load_matcher() -> Matcher {
     Matcher::compile(load_rules())
 }
 
+/// Parse the compiled-in default ruleset. Infallible by construction: the embedded
+/// TOML ships in the binary and is covered by tests, so a parse failure is a build
+/// bug, not a runtime condition.
+fn embedded() -> RuleFile {
+    toml::from_str(EMBEDDED).expect("embedded prun-rules.toml must parse")
+}
+
 /// Where the override lives and whether it is currently in effect — surfaced in
 /// the Settings panel so users discover the file and can edit it.
 #[derive(Serialize)]
@@ -65,10 +72,10 @@ pub fn rules_status() -> RulesStatus {
             }
             Err(e) => {
                 error = Some(e);
-                toml::from_str(EMBEDDED).expect("embedded parses")
+                embedded()
             }
         },
-        _ => toml::from_str(EMBEDDED).expect("embedded parses"),
+        _ => embedded(),
     };
 
     RulesStatus {
@@ -113,7 +120,7 @@ pub fn load_rules() -> RuleFile {
             }
         }
     }
-    toml::from_str(EMBEDDED).expect("embedded prun-rules.toml must parse")
+    embedded()
 }
 
 #[cfg(test)]
@@ -136,7 +143,7 @@ fn load_rules_from(path: &Path) -> Result<RuleFile, String> {
 /// fresh, ids listed in `removed` are dropped, and override-only ids (the user's own
 /// rules) are appended after the built-ins.
 fn merge_over_embedded(ov: RuleFile) -> RuleFile {
-    let base: RuleFile = toml::from_str(EMBEDDED).expect("embedded parses");
+    let base = embedded();
     RuleFile {
         schema_version: base.schema_version,
         defaults: ov.defaults,
@@ -186,7 +193,7 @@ fn merge_section<T: Clone>(
 /// absent from the submission (built-ins the user removed). Unmodified built-ins are
 /// dropped so their future updates keep flowing.
 fn delta_against_embedded(full: &RuleFile) -> RuleFile {
-    let base: RuleFile = toml::from_str(EMBEDDED).expect("embedded parses");
+    let base = embedded();
     let (rules, rm_rules) = delta_section(&base.rules, &full.rules, |r| r.id.as_str());
     let (junk, rm_junk) = delta_section(&base.junk, &full.junk, |j| j.id.as_str());
     let (global_cache, rm_cache) =

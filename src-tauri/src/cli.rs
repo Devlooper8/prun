@@ -227,24 +227,21 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
         return ExitCode::FAILURE;
     }
     // `clean` streams sequentially over `&mut dyn FnMut`, so the closure can bump
-    // plain locals and buffer lines directly; flush them after.
-    let mut lines: Vec<String> = Vec::new();
+    // plain locals and write each line straight to `out` — its borrows release when
+    // the call returns, freeing `out` and the tallies for the summary below.
     let mut removed = 0u64;
     let mut failed = 0u64;
     clean(&paths, !permanent, &mut |ev| match ev {
         CleanEvent::Removed { path, .. } => {
             removed += 1;
-            lines.push(format!("removed  {path}"));
+            let _ = writeln!(out, "removed  {path}");
         }
         CleanEvent::Failed { path, error, .. } => {
             failed += 1;
-            lines.push(format!("failed   {path}: {error}"));
+            let _ = writeln!(out, "failed   {path}: {error}");
         }
         _ => {}
     });
-    for line in lines {
-        let _ = writeln!(out, "{line}");
-    }
     let verb = if permanent { "deleted" } else { "trashed" };
     let _ = writeln!(out, "{verb} {removed}, {failed} failed");
     if failed > 0 {

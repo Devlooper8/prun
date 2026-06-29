@@ -71,12 +71,7 @@ function debounce(fn: () => void, ms: number): () => void {
  *  backend couldn't fully read some paths (so a wrong total isn't shown as final).
  *  The first concrete example is appended so "unreadable" is actionable; the full
  *  sample list goes to the console and the backend log. */
-function scanSummary(
-  count: number,
-  errors: number,
-  noun = "location",
-  errorSamples: string[] = [],
-): string {
+function scanSummary(count: number, errors: number, noun: string, errorSamples: string[]): string {
   const base = `Found ${count} ${noun}${count === 1 ? "" : "s"}`;
   if (errors === 0) return base;
   const example = errorSamples.length > 0 ? ` — e.g. ${truncate(errorSamples[0], 80)}` : "";
@@ -319,22 +314,20 @@ function updateFooter() {
  *  (project scan only) auto-select everything and toast a summary. `runner` opens
  *  the matching backend stream with the shared handler set. */
 async function runScanInto(
-  cfg: {
-    mode: "scan" | "caches";
-    rootLabel: string;
-    noun: string; // summary toast: "location" | "system cache"
-    failVerb: string; // failure toast / warn: "Scan" | "Cache scan"
-    autoSelectAll: boolean;
-  },
+  mode: "scan" | "caches",
+  rootLabel: string,
   runner: (handlers: ScanHandlers) => Promise<void>,
 ) {
   if (state.scanning || state.cleaning) return; // ignore overlapping scans/cleans
+  const caches = mode === "caches";
+  const noun = caches ? "system cache" : "location";
+  const failVerb = caches ? "Cache scan" : "Scan";
   // Reset to an empty live result the stream will fill in.
   state.scanning = true;
-  state.mode = cfg.mode;
+  state.mode = mode;
   rescanBtn.disabled = true;
   cachesBtn.disabled = true;
-  state.result = { root: cfg.rootLabel, categories: [], locations: [] };
+  state.result = { root: rootLabel, categories: [], locations: [] };
   state.selected.clear();
   state.catsOn.clear();
   state.expanded.clear();
@@ -343,7 +336,7 @@ async function runScanInto(
   let errors = 0;
   let errorSamples: string[] = [];
 
-  showScanbar(cfg.rootLabel);
+  showScanbar(rootLabel);
   render();
 
   try {
@@ -369,16 +362,16 @@ async function runScanInto(
       },
     });
 
-    if (cfg.autoSelectAll) state.selected = new Set(visibleLocations().map((l) => l.path));
+    if (!caches) state.selected = new Set(visibleLocations().map((l) => l.path));
     hideScanbar();
     render();
     if (errorSamples.length > 0)
-      console.warn(`unreadable during ${cfg.failVerb.toLowerCase()}:`, errorSamples);
-    toast(scanSummary(state.result.locations.length, errors, cfg.noun, errorSamples));
+      console.warn(`unreadable during ${failVerb.toLowerCase()}:`, errorSamples);
+    toast(scanSummary(state.result.locations.length, errors, noun, errorSamples));
   } catch (err) {
     hideScanbar();
     render();
-    toast(`${cfg.failVerb} failed: ${err}`);
+    toast(`${failVerb} failed: ${err}`);
   } finally {
     state.scanning = false;
     rescanBtn.disabled = false;
@@ -393,25 +386,13 @@ function doScan() {
     skipGitTracked: state.filters.git,
     respectPrunignore: state.filters.prunignore,
   };
-  return runScanInto(
-    { mode: "scan", rootLabel: opts.root, noun: "location", failVerb: "Scan", autoSelectAll: true },
-    (handlers) => runScan(opts, handlers),
-  );
+  return runScanInto("scan", opts.root, (handlers) => runScan(opts, handlers));
 }
 
 /** Scan the per-user system caches. A separate view: never auto-selected, since
  *  these are shared across projects and slow to rebuild. */
 function doScanCaches() {
-  return runScanInto(
-    {
-      mode: "caches",
-      rootLabel: "System caches",
-      noun: "system cache",
-      failVerb: "Cache scan",
-      autoSelectAll: false,
-    },
-    (handlers) => runScanCaches(handlers),
-  );
+  return runScanInto("caches", "System caches", runScanCaches);
 }
 
 /** Drop one location from the list + selection as its deletion confirms (and

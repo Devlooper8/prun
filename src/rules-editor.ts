@@ -117,12 +117,6 @@ function ensureEcoDatalist() {
   document.body.appendChild(dl);
 }
 
-function ecosystemInput(value: string, oninput: (v: string) => void): HTMLInputElement {
-  const i = textInput(value, "ecosystem (free text)", oninput);
-  i.setAttribute("list", "re-eco-list");
-  return i;
-}
-
 /** Chips + add-input for a string array; re-renders only its own container. */
 function stringList(items: string[], placeholder: string, onChange: () => void): HTMLDivElement {
   const wrap = el("div", "re-chips");
@@ -170,21 +164,12 @@ function stringList(items: string[], placeholder: string, onChange: () => void):
 }
 
 /* ── list pane ─────────────────────────────────────────────────── */
-function currentEntries(): Entry[] {
-  // never called for the "defaults" section (it has no list pane)
-  return SECTIONS[ed.section as ListSection].list(ed.model!);
-}
-
 function matchEntry(e: Entry, q: string): boolean {
   return (
     (e.id || "").toLowerCase().includes(q) ||
     (e.name || "").toLowerCase().includes(q) ||
     (e.ecosystem || "").toLowerCase().includes(q)
   );
-}
-
-function listScroll(): HTMLElement | null {
-  return listEl.querySelector<HTMLElement>(".re-list__scroll");
 }
 
 function renderList() {
@@ -211,11 +196,13 @@ function renderList() {
 }
 
 function renderGroups() {
-  const scroll = listScroll();
+  const scroll = listEl.querySelector<HTMLElement>(".re-list__scroll");
   if (!scroll) return;
   scroll.innerHTML = "";
   const q = ed.search.trim().toLowerCase();
-  const filtered = currentEntries().filter((e) => !q || matchEntry(e, q));
+  // `ed.section` is never "defaults" here (that section has no list pane)
+  const entries = SECTIONS[ed.section as ListSection].list(ed.model!);
+  const filtered = entries.filter((e) => !q || matchEntry(e, q));
 
   if (filtered.length === 0) {
     scroll.appendChild(el("div", "re-empty", q ? "No matches." : "Nothing here yet — ＋ Add one."));
@@ -357,16 +344,13 @@ function commonHeaderFields(e: Entry, titled: () => void): HTMLDivElement {
       }),
     ),
   );
-  grid.appendChild(
-    field(
-      "ecosystem",
-      ecosystemInput(e.ecosystem, (v) => {
-        e.ecosystem = v;
-        markDirty();
-        syncSelectedRow();
-      }),
-    ),
-  );
+  const eco = textInput(e.ecosystem, "ecosystem (free text)", (v) => {
+    e.ecosystem = v;
+    markDirty();
+    syncSelectedRow();
+  });
+  eco.setAttribute("list", "re-eco-list"); // suggest the known ecosystems
+  grid.appendChild(field("ecosystem", eco));
   return grid;
 }
 
