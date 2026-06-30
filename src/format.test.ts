@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtSize, esc, shortPath, truncate } from "./format";
+import { fmtSize, cleanSummary, esc, shortPath, truncate } from "./format";
 
 describe("fmtSize", () => {
   it("scales bytes through B / KB / MB / GB", () => {
@@ -7,6 +7,25 @@ describe("fmtSize", () => {
     expect(fmtSize(1500)).toBe("2 KB");
     expect(fmtSize(1_500_000)).toBe("2 MB");
     expect(fmtSize(6.6e9)).toBe("6.6 GB");
+  });
+});
+
+describe("cleanSummary", () => {
+  it("permanent delete claims the space as reclaimed", () => {
+    expect(cleanSummary(4.2e9, 12, false, 0)).toBe("Reclaimed 4.2 GB · 12 locations deleted");
+  });
+  it("trash is honest that disk isn't freed until the bin is emptied", () => {
+    expect(cleanSummary(4.2e9, 12, true, 0)).toBe(
+      "Moved 4.2 GB to Trash · 12 locations — empty Trash to reclaim",
+    );
+  });
+  it("singularizes one location and appends a failure note", () => {
+    expect(cleanSummary(1e6, 1, false, 2)).toBe(
+      "Reclaimed 1 MB · 1 location deleted · 2 couldn't be removed (in use?)",
+    );
+  });
+  it("reports nothing removed when every path failed", () => {
+    expect(cleanSummary(0, 0, true, 3)).toBe("Nothing removed · 3 couldn't be removed (in use?)");
   });
 });
 

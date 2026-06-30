@@ -1,6 +1,6 @@
 import "./styles.css";
 import { type ScanResult, type ScanOptions, type Location, categoryColor } from "./types";
-import { fmtSize, esc, shortPath, truncate } from "./format";
+import { fmtSize, cleanSummary, esc, shortPath, truncate } from "./format";
 import {
   type ProjectGroup,
   subPathOf,
@@ -418,7 +418,6 @@ async function doClean() {
   if (!chosen.length) return;
   const paths = chosen.map((l) => l.path);
   const toTrash = trashCb.checked;
-  const verb = toTrash ? "moved to Trash" : "deleted";
 
   state.cleaning = true;
   state.failed = new Map();
@@ -447,12 +446,12 @@ async function doClean() {
     hideScanbar();
     res.categories = rollupCategories(res.locations); // drop emptied categories
     render();
-    const removed = paths.length - state.failed.size;
-    toast(
-      state.failed.size === 0
-        ? `${removed} location${removed === 1 ? "" : "s"} ${verb}`
-        : `${removed} ${verb} · ${state.failed.size} couldn't be removed (in use?)`,
-    );
+    // Reclaimed = the sizes we actually removed (scan already measured them);
+    // failed rows stay listed, so exclude them from the tally.
+    const reclaimed = chosen
+      .filter((l) => !state.failed.has(l.path))
+      .reduce((s, l) => s + l.size, 0);
+    toast(cleanSummary(reclaimed, paths.length - state.failed.size, toTrash, state.failed.size));
   } catch (err) {
     hideScanbar();
     render();

@@ -9,6 +9,25 @@ export function fmtSize(bytes: number): string {
   return `${bytes} B`;
 }
 
+/** Post-clean toast text. Honest about disk: permanent delete truly frees the
+ *  space, but "Move to Trash" only relocates it — the bytes still occupy the disk
+ *  until the Trash/Recycle Bin is emptied, so don't claim them as reclaimed. */
+export function cleanSummary(
+  reclaimedBytes: number,
+  removed: number,
+  toTrash: boolean,
+  failed: number,
+): string {
+  const locs = `${removed} location${removed === 1 ? "" : "s"}`;
+  let head: string;
+  if (removed === 0) head = "Nothing removed";
+  else if (toTrash)
+    head = `Moved ${fmtSize(reclaimedBytes)} to Trash · ${locs} — empty Trash to reclaim`;
+  else head = `Reclaimed ${fmtSize(reclaimedBytes)} · ${locs} deleted`;
+  if (failed > 0) head += ` · ${failed} couldn't be removed (in use?)`;
+  return head;
+}
+
 const escMap: Record<string, string> = {
   "&": "&amp;",
   "<": "&lt;",
