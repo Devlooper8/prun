@@ -16,6 +16,7 @@ import {
   runClean,
   cancelScan,
   pickFolder,
+  onFolderDrop,
   windowAction,
   openLogsDir,
 } from "./backend";
@@ -557,6 +558,12 @@ function wire() {
       rootInput.value = dir;
       doScan();
     }
+  });
+
+  // drag a folder anywhere onto the window to scan it
+  onFolderDrop((path) => {
+    rootInput.value = path;
+    doScan();
   });
 
   // filter pills (scoped to the Clean view — the rules editor's tabs are .pill too)

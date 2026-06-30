@@ -198,6 +198,20 @@ export async function pickFolder(): Promise<string | null> {
   return typeof sel === "string" ? sel : null;
 }
 
+/** Fire `cb` with the first path dropped onto the window — drag a folder in to
+ *  scan it. No-op in the browser preview (file drops there carry no real path). */
+export async function onFolderDrop(cb: (path: string) => void): Promise<void> {
+  if (!IS_TAURI) return;
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  await getCurrentWebview().onDragDropEvent((event) => {
+    // ponytail: take the dropped path as-is — a dropped file just scans as an
+    // empty root rather than erroring, not worth a stat round-trip to reject.
+    if (event.payload.type === "drop" && event.payload.paths.length > 0) {
+      cb(event.payload.paths[0]);
+    }
+  });
+}
+
 /** Window controls for the custom titlebar (no-ops in the browser preview). */
 export async function windowAction(action: "minimize" | "maximize" | "close"): Promise<void> {
   if (!IS_TAURI) return;
