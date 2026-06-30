@@ -44,6 +44,7 @@ const locsList = $<HTMLUListElement>("#locs-list");
 const selCount = $<HTMLSpanElement>("#sel-count");
 const selSize = $<HTMLSpanElement>("#sel-size");
 const rootInput = $<HTMLInputElement>("#root");
+const recentRoots = $<HTMLDataListElement>("#recent-roots");
 const ageInput = $<HTMLInputElement>("#age-days");
 const sizeInput = $<HTMLInputElement>("#size-mb");
 const cleanBtn = $<HTMLButtonElement>("#clean");
@@ -59,6 +60,32 @@ const viewClean = $<HTMLElement>("#view-clean");
 const viewRules = $<HTMLElement>("#view-rules");
 
 /* ───────────────────────── Helpers ───────────────────────────── */
+/* Recent scan roots, remembered across launches in the webview's localStorage
+ * (the Tauri shell persists it to disk). A native <datalist> renders the dropdown
+ * off the path input — no custom widget. */
+const RECENT_KEY = "prun.recentRoots";
+function loadRecentRoots(): string[] {
+  try {
+    const v: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return []; // corrupt/missing entry → just start fresh
+  }
+}
+function renderRecentRoots(roots: string[]): void {
+  recentRoots.innerHTML = "";
+  for (const r of roots) {
+    const opt = document.createElement("option");
+    opt.value = r; // set via property, not innerHTML — no escaping needed
+    recentRoots.appendChild(opt);
+  }
+}
+function rememberRoot(root: string): void {
+  const next = [root, ...loadRecentRoots().filter((r) => r !== root)].slice(0, 6);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(next));
+  renderRecentRoots(next);
+}
+
 /** Run `fn` only after `ms` of silence — keeps rapid input (typing in the age
  *  field) from re-filtering and re-rendering the whole list per keystroke. */
 function debounce(fn: () => void, ms: number): () => void {
@@ -366,7 +393,10 @@ async function runScanInto(
       },
     });
 
-    if (!caches) state.selected = new Set(visibleLocations().map((l) => l.path));
+    if (!caches) {
+      state.selected = new Set(visibleLocations().map((l) => l.path));
+      rememberRoot(rootLabel); // a project scan succeeded → remember this root
+    }
     hideScanbar();
     render();
     if (errorSamples.length > 0)
@@ -586,5 +616,8 @@ function wire() {
 }
 
 /* ───────────────────────── Boot ──────────────────────────────── */
+const savedRoots = loadRecentRoots();
+renderRecentRoots(savedRoots);
+if (savedRoots[0]) rootInput.value = savedRoots[0]; // reopen on the last root used
 wire();
 doScan();
