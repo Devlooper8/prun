@@ -221,11 +221,57 @@ fn cmd_rules(args: &[String], out: &mut dyn Write) -> ExitCode {
 
 fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
     let permanent = has_flag(args, "--delete"); // default is recoverable Trash
-    let paths: Vec<String> = positionals(args).iter().map(|s| s.to_string()).collect();
+    let dry_run = has_flag(args, "--dry-run");
+    let scan_root = flag_value(args, "--scan");
+
+    // Targets come either from a scan (`--scan ROOT` — the safe one-shot that
+    // makes "clean what's untouched > N days" a single cron line) or as explicit
+    // positional paths.
+    let paths: Vec<String> = if let Some(root) = scan_root {
+        let opts = ScanOptions {
+            root: root.to_string(),
+            min_age_days: flag_value(args, "--min-age").and_then(|v| v.parse::<u64>().ok()),
+            skip_git_tracked: !has_flag(args, "--all"),
+            respect_prunignore: true,
+        };
+        let collected = collect_scan(|emit| {
+            let cancel = AtomicBool::new(false);
+            scan(&opts, &cancel, emit)
+        });
+        if let Err(e) = collected.result {
+            let _ = writeln!(out, "error: {e}");
+            return ExitCode::FAILURE;
+        }
+        let mut locs = collected.locations;
+        locs.sort_by(|a, b| b.size.cmp(&a.size)); // largest-first, like the GUI
+        locs.into_iter().map(|l| l.path).collect()
+    } else {
+        positionals(args).iter().map(|s| s.to_string()).collect()
+    };
+
     if paths.is_empty() {
-        let _ = writeln!(out, "error: `clean` needs at least one path");
+        let _ = writeln!(out, "error: `clean` needs at least one path (or --scan PATH)");
         return ExitCode::FAILURE;
     }
+
+    // Deleting what a scan turned up needs an explicit --yes; without it we fall
+    // back to a dry run (which deletes nothing). Explicit positional paths are
+    // taken at face value — you named them, so no confirmation gate.
+    let needs_confirm = scan_root.is_some() && !has_flag(args, "--yes");
+    if dry_run || needs_confirm {
+        for p in &paths {
+            let _ = writeln!(out, "would remove  {p}");
+        }
+        let verb = if permanent { "delete" } else { "trash" };
+        let n = paths.len();
+        let mut line = format!("dry run: would {verb} {n} path{}", if n == 1 { "" } else { "s" });
+        if needs_confirm && !dry_run {
+            line.push_str(" — re-run with --yes to do it");
+        }
+        let _ = writeln!(out, "{line}");
+        return ExitCode::SUCCESS;
+    }
+
     // `clean` streams sequentially over `&mut dyn FnMut`, so the closure can bump
     // plain locals and write each line straight to `out` — its borrows release when
     // the call returns, freeing `out` and the tallies for the summary below.
@@ -278,8 +324,13 @@ USAGE:
                        --min-age  only dirs untouched for >= DAYS
   prun caches [--json] list per-user system caches (Cargo, npm, Gradle, …)
   prun rules  [--json] show the active ruleset status
-  prun clean PATH...   move PATHs to the Trash (recoverable)
-                       --delete   remove permanently instead
+  prun clean [PATH...] move PATHs to the Trash (recoverable)
+                       --scan ROOT  clean what a scan of ROOT finds (needs --yes)
+                       --min-age N  with --scan: only dirs untouched >= N days
+                       --all        with --scan: include git-tracked dirs too
+                       --delete     remove permanently instead of trashing
+                       --dry-run    print what would be removed, delete nothing
+                       --yes        confirm a --scan clean (else it's a dry run)
   prun logs            print the log / crash-report directory
   prun version
   prun help
@@ -393,6 +444,60 @@ mod tests {
         let (out, code) = run(&["clean"]);
         assert!(out.contains("needs at least one path"));
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::FAILURE));
+    }
+
+    #[test]
+    fn clean_dry_run_on_explicit_path_deletes_nothing() {
+        let root = fresh_tmp("cli_clean_dry");
+        let blob = root.join("node_modules");
+        touch(&blob.join("x.js"));
+
+        let p = blob.to_string_lossy().to_string();
+        let (out, _) = run(&["clean", &p, "--dry-run"]);
+
+        let still_there = blob.exists();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(out.contains("would remove"), "previews the path; got {out}");
+        assert!(still_there, "--dry-run must delete nothing");
+    }
+
+    #[test]
+    fn clean_scan_without_yes_is_a_dry_run() {
+        let root = fresh_tmp("cli_clean_scan");
+        let proj = root.join("rustproj");
+        touch(&proj.join("Cargo.toml"));
+        let target = proj.join("target");
+        touch(&target.join("blob"));
+
+        let path = root.to_string_lossy().to_string();
+        let (out, code) = run(&["clean", "--scan", &path, "--all"]);
+
+        let still_there = target.exists();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(out.contains("would remove"), "previews paths; got {out}");
+        assert!(out.contains("--yes"), "hints how to do it for real; got {out}");
+        assert!(still_there, "a scan clean without --yes deletes nothing");
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
+    }
+
+    #[test]
+    fn clean_scan_with_yes_deletes_only_the_artifact() {
+        let root = fresh_tmp("cli_clean_scan_yes");
+        let proj = root.join("rustproj");
+        touch(&proj.join("Cargo.toml"));
+        let target = proj.join("target");
+        touch(&target.join("blob"));
+
+        let path = root.to_string_lossy().to_string();
+        let (out, code) = run(&["clean", "--scan", &path, "--all", "--delete", "--yes"]);
+
+        let target_gone = !target.exists();
+        let marker_kept = proj.join("Cargo.toml").exists();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(out.contains("removed"), "reports the removal; got {out}");
+        assert!(target_gone, "--yes deletes the scanned artifact");
+        assert!(marker_kept, "only the artifact goes, not the project marker");
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
     }
 
     #[test]
