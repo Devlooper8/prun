@@ -131,4 +131,16 @@ describe("filterLocations", () => {
     });
     expect(out.map((l) => l.path)).toEqual(["/a", "/b"]); // /c is tracked
   });
+
+  it("size filter drops anything below the byte threshold", () => {
+    const out = filterLocations(locs, {
+      catsOn: new Set(),
+      ageFilter: false,
+      ageDays: 14,
+      gitFilter: false,
+      sizeFilter: true,
+      sizeBytes: 7,
+    });
+    expect(out.map((l) => l.path)).toEqual(["/a", "/c"]); // /b is 5, below 7
+  });
 });

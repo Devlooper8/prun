@@ -79,15 +79,19 @@ export interface LocationFilter {
   ageFilter: boolean;
   ageDays: number;
   gitFilter: boolean;
+  /** when set, drop anything smaller than `sizeBytes` (focus on the big wins) */
+  sizeFilter?: boolean;
+  sizeBytes?: number;
 }
 
-/** Apply the category / age / git filters and sort biggest-first. */
+/** Apply the category / age / git / size filters and sort biggest-first. */
 export function filterLocations(locations: Location[], f: LocationFilter): Location[] {
   return locations
     .filter((loc) => {
       if (f.catsOn.size && !f.catsOn.has(loc.category)) return false;
       if (f.ageFilter && loc.age_secs < f.ageDays * 86400) return false;
       if (f.gitFilter && !loc.git_ignored) return false;
+      if (f.sizeFilter && loc.size < (f.sizeBytes ?? 0)) return false;
       return true;
     })
     .sort((a, b) => b.size - a.size);

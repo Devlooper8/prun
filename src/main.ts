@@ -26,8 +26,9 @@ const state = {
   result: null as ScanResult | null,
   selected: new Set<string>(), // selected location paths
   catsOn: new Set<string>(), // enabled category ids
-  filters: { age: false, git: false, prunignore: false },
+  filters: { age: false, git: false, prunignore: false, size: false },
   ageDays: 14,
+  sizeMb: 50, // "Hide < N MB" threshold (client-side; size is already measured)
   scanning: false, // guards against overlapping scans
   cleaning: false, // guards against overlapping cleans / scans during a clean
   failed: new Map<string, string>(), // path → error for rows a clean couldn't remove
@@ -44,6 +45,7 @@ const selCount = $<HTMLSpanElement>("#sel-count");
 const selSize = $<HTMLSpanElement>("#sel-size");
 const rootInput = $<HTMLInputElement>("#root");
 const ageInput = $<HTMLInputElement>("#age-days");
+const sizeInput = $<HTMLInputElement>("#size-mb");
 const cleanBtn = $<HTMLButtonElement>("#clean");
 const trashCb = $<HTMLInputElement>("#trash");
 const rescanBtn = $<HTMLButtonElement>("#rescan");
@@ -87,6 +89,8 @@ function visibleLocations(): Location[] {
     ageFilter: state.filters.age,
     ageDays: state.ageDays,
     gitFilter: state.filters.git,
+    sizeFilter: state.filters.size,
+    sizeBytes: state.sizeMb * 1e6, // MB → bytes, matching fmtSize's SI units
   });
 }
 
@@ -548,6 +552,17 @@ function wire() {
     const v = parseInt(ageInput.value, 10);
     state.ageDays = Number.isFinite(v) && v > 0 ? v : 14;
     applyAgeFilter();
+  });
+  const applySizeFilter = debounce(() => {
+    if (state.filters.size) {
+      reconcileSelection();
+      render();
+    }
+  }, 200);
+  sizeInput.addEventListener("input", () => {
+    const v = parseInt(sizeInput.value, 10);
+    state.sizeMb = Number.isFinite(v) && v > 0 ? v : 50;
+    applySizeFilter();
   });
 
   cleanBtn.addEventListener("click", doClean);
