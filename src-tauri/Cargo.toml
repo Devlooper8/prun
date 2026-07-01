@@ -1,11 +1,11 @@
 [package]
 name = "prun"
-version = "0.2.0"
+version = "0.3.0"
 description = "Project artifact cleaner"
 authors = ["Tomáš Ondruš"]
 edition = "2021"
 rust-version = "1.77"
-license = "MIT"
+license = "Apache-2.0"
 
 # The library is what `tauri::generate_handler!` and the mobile entry point use.
 [lib]

@@ -6,6 +6,8 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-01
+
 ### Added
 - **Crash reports** — a panic hook writes the panic message, location, and
   backtrace to `crash-<time>.txt` in the log dir (release builds abort with
@@ -32,6 +34,24 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ARCHITECTURE.md recording the module shape and load-bearing invariants.
 - **Frontend lint/format** — eslint (typescript-eslint) + prettier, gated in
   CI alongside a vitest coverage report.
+- **Drag a folder onto the window to scan it** — same end state as the folder
+  picker, less clicking; the dropped path is taken as-is.
+- **Remembered recent scan roots** — the path field reopens on the last root
+  scanned and offers up to 6 recent ones via a native `<datalist>`.
+- **CLI: one-shot `clean --scan ROOT [--min-age N] [--all] [--dry-run|--yes]`**
+  — scans and cleans in a single command, so a scheduled reclaim is one cron
+  line instead of a `scan --json | … | clean` pipe. Deleting what a scan
+  turns up needs an explicit `--yes`; without it (or with `--dry-run`) it
+  only prints what would be removed.
+- **"Hide < N MB" size-filter pill** — hides small artifacts client-side (no
+  rescan) so the big reclaims aren't buried under a long tail of tiny ones.
+- **Honest reclaimed-space summary** — the post-clean toast reports how much
+  was actually reclaimed, and says so differently for the two delete modes:
+  a permanent delete frees the space now, "Move to Trash" only relocates it
+  until the Trash is emptied.
+- **A live selected/available size readout** above the list (`"{selected} /
+  {available}"`), so the footer's selected total always has a visible basis.
+- **Per-artifact last-modified timestamps**, shown on each row.
 
 ### Changed
 - **`backend.ts` is now the only frontend file that talks to Tauri** — every
@@ -39,6 +59,25 @@ follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `sample-data.ts`; the age filter re-render is debounced while typing.
 - The rules editor's status line reports a status-read failure instead of
   going silently blank.
+- **Relicensed from MIT to the Apache License 2.0** (`LICENSE`, and the
+  `license` metadata in `package.json` / `Cargo.toml`).
+- **Clean-view review pass**: category sidebar rows restyled from checkboxes
+  to filter toggles (they filter what's shown, not bulk-select what's
+  deleted — the checkbox look implied the latter); "locations" reworded to
+  "projects" (grouped rows) and "artifacts" (individual items) across the
+  list header, footer, and toasts; PHP's category dot recolored off Node's
+  green (both landed in the same green cluster); the Clean button now turns
+  red and needs a confirming second click when Trash is unchecked, so a
+  misclick can't bypass it into a permanent delete; the filter-pill row's
+  top padding fixed (was flush against the divider above it).
+
+### Fixed
+- **Boot crash on every launch** — `tauri-plugin-updater` hard-requires a
+  `plugins.updater` config block that `tauri.conf.json` didn't have, so
+  `Builder::run` aborted with `PluginInitialization("updater", ...)` on
+  startup. The plugin now registers only when that config block is present,
+  so an unconfigured build boots; `RELEASING.md` documents the block as
+  what turns updates on.
 
 ## [0.2.0] - 2026-06-11
 
@@ -80,6 +119,7 @@ Initial Tauri desktop app: parallel streaming scanner driven by an embedded,
 user-overridable `prun-rules.toml`; project-grouped reclaimable list; streaming
 trash/delete; system-caches view; in-app rules editor.
 
-[Unreleased]: https://github.com/your-org/prun/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/your-org/prun/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/your-org/prun/releases/tag/v0.3.0
 [0.2.0]: https://github.com/your-org/prun/releases/tag/v0.2.0
 [0.1.0]: https://github.com/your-org/prun/releases/tag/v0.1.0
