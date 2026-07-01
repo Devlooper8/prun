@@ -1,6 +1,6 @@
 import "./styles.css";
 import { type ScanResult, type ScanOptions, type Location, categoryColor } from "./types";
-import { fmtSize, cleanSummary, esc, shortPath, truncate } from "./format";
+import { fmtSize, fmtAge, cleanSummary, esc, shortPath, truncate } from "./format";
 import {
   type ProjectGroup,
   subPathOf,
@@ -42,6 +42,8 @@ const state = {
 const $ = <T extends Element>(s: string) => document.querySelector<T>(s)!;
 const catsList = $<HTMLUListElement>("#cats-list");
 const locsList = $<HTMLUListElement>("#locs-list");
+const locsTitle = $<HTMLSpanElement>("#locs-title");
+const locsSize = $<HTMLSpanElement>("#locs-size");
 const selCount = $<HTMLSpanElement>("#sel-count");
 const selSize = $<HTMLSpanElement>("#sel-size");
 const rootInput = $<HTMLInputElement>("#root");
@@ -186,21 +188,26 @@ function render() {
   const res = state.result;
   if (!res) return;
 
-  // categories
+  locsTitle.textContent =
+    state.mode === "caches" ? "Largest reclaimable caches" : "Largest reclaimable projects";
+
+  // categories — a filter facet (dims when off), not a bulk selector
   catsList.innerHTML = "";
   for (const cat of res.categories) {
     const li = document.createElement("li");
-    li.className = "cat";
+    const on = state.catsOn.size === 0 || state.catsOn.has(cat.id);
     li.innerHTML = `
-      <input class="cb" type="checkbox" ${state.catsOn.size === 0 || state.catsOn.has(cat.id) ? "checked" : ""}>
-      <span class="dot" style="background:${categoryColor(cat.id)}"></span>
-      <span class="cat__name">${esc(cat.label)}</span>
-      <span class="cat__size">${fmtSize(cat.size)}</span>`;
-    const cb = li.querySelector<HTMLInputElement>(".cb")!;
-    cb.addEventListener("change", () => {
+      <button class="cat" aria-pressed="${on}">
+        <span class="dot" style="background:${categoryColor(cat.id)}"></span>
+        <span class="cat__name">${esc(cat.label)}</span>
+        <span class="cat__size">${fmtSize(cat.size)}</span>
+      </button>`;
+    const btn = li.querySelector<HTMLButtonElement>(".cat")!;
+    btn.addEventListener("click", () => {
+      const nowOn = btn.getAttribute("aria-pressed") !== "true";
       // empty set == "all on"; first manual toggle materialises the set
       if (state.catsOn.size === 0) res.categories.forEach((c) => state.catsOn.add(c.id));
-      if (cb.checked) state.catsOn.add(cat.id);
+      if (nowOn) state.catsOn.add(cat.id);
       else state.catsOn.delete(cat.id);
       if (state.catsOn.size === res.categories.length) state.catsOn.clear();
       reconcileSelection();
@@ -300,6 +307,7 @@ function renderChild(
     <input class="cb" type="checkbox" ${state.selected.has(loc.path) ? "checked" : ""}>
     <span class="dot" style="background:${categoryColor(loc.category)}"></span>
     <span class="loc__path"><span class="loc__sub">${esc(prefix)}</span><span class="loc__leaf">${esc(leaf)}</span></span>
+    <span class="loc__age">${fmtAge(loc.age_secs)}</span>
     <span class="loc__size">${fmtSize(loc.size)}</span>`;
   const cb = li.querySelector<HTMLInputElement>(".cb")!;
   const sync = () => {
@@ -330,6 +338,12 @@ function reconcileSelection() {
   for (const p of [...state.selected]) if (!visible.has(p)) state.selected.delete(p);
 }
 
+// A permanent delete is armed by one click and only fires on a second — a
+// misclick can never bypass Trash. Trash stays a single, immediate click,
+// since friction should track risk, not the other way around.
+let confirmingPermanent = false;
+let confirmTimer: number | undefined;
+
 function updateFooter() {
   const res = state.result;
   if (!res) return;
@@ -337,6 +351,22 @@ function updateFooter() {
   const total = chosen.reduce((s, l) => s + l.size, 0);
   selCount.textContent = String(chosen.length);
   selSize.textContent = fmtSize(total);
+
+  const available = visibleLocations().reduce((s, l) => s + l.size, 0);
+  locsSize.textContent = `${fmtSize(total)} / ${fmtSize(available)}`;
+
+  // Clean's danger level follows Trash: permanent delete shouldn't wear the
+  // same inviting blue as the reversible default.
+  const permanent = !trashCb.checked;
+  if (!permanent) confirmingPermanent = false; // only the permanent path arms
+  cleanBtn.classList.toggle("btn--danger", permanent);
+  cleanBtn.classList.toggle("btn--primary", !permanent);
+  cleanBtn.querySelector("span")!.textContent = confirmingPermanent
+    ? "Click again to confirm"
+    : permanent
+      ? "Delete permanently"
+      : "Clean selected";
+
   // stays disabled mid-clean even though rows (and selection) shrink live
   cleanBtn.disabled = state.cleaning || chosen.length === 0;
 }
@@ -352,7 +382,7 @@ async function runScanInto(
 ) {
   if (state.scanning || state.cleaning) return; // ignore overlapping scans/cleans
   const caches = mode === "caches";
-  const noun = caches ? "system cache" : "location";
+  const noun = caches ? "system cache" : "artifact";
   const failVerb = caches ? "Cache scan" : "Scan";
   // Reset to an empty live result the stream will fill in.
   state.scanning = true;
@@ -499,6 +529,26 @@ async function doClean() {
   }
 }
 
+/** Clean-button click: Trash cleans immediately; a permanent delete arms on
+ *  the first click ("Click again to confirm") and only runs on the second,
+ *  auto-disarming after a few seconds so the risky path always costs an
+ *  extra, deliberate click. */
+function handleCleanClick() {
+  if (!trashCb.checked && !confirmingPermanent) {
+    confirmingPermanent = true;
+    clearTimeout(confirmTimer);
+    confirmTimer = window.setTimeout(() => {
+      confirmingPermanent = false;
+      updateFooter();
+    }, 3500);
+    updateFooter();
+    return;
+  }
+  confirmingPermanent = false;
+  clearTimeout(confirmTimer);
+  doClean();
+}
+
 /* ───────────────────────── Navigation ────────────────────────── */
 /** Switch the top-level screen from the left nav rail. */
 function setView(view: "clean" | "rules") {
@@ -602,7 +652,8 @@ function wire() {
     applySizeFilter();
   });
 
-  cleanBtn.addEventListener("click", doClean);
+  cleanBtn.addEventListener("click", handleCleanClick);
+  trashCb.addEventListener("change", updateFooter);
 
   // top-level nav (left rail): Clean / Rules. Scoped to [data-view] — the rail
   // also holds action buttons (Logs) that share the style but switch no view.

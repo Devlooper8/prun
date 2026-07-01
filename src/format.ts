@@ -9,6 +9,16 @@ export function fmtSize(bytes: number): string {
   return `${bytes} B`;
 }
 
+/** Relative last-modified label, e.g. 300 → "today", 5×86400 → "5d ago". */
+export function fmtAge(seconds: number): string {
+  const days = Math.floor(seconds / 86400);
+  if (days < 1) return "today";
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `${months}mo ago`;
+  return `${Math.floor(months / 12)}y ago`;
+}
+
 /** Post-clean toast text. Honest about disk: permanent delete truly frees the
  *  space, but "Move to Trash" only relocates it — the bytes still occupy the disk
  *  until the Trash/Recycle Bin is emptied, so don't claim them as reclaimed. */
@@ -18,12 +28,12 @@ export function cleanSummary(
   toTrash: boolean,
   failed: number,
 ): string {
-  const locs = `${removed} location${removed === 1 ? "" : "s"}`;
+  const artifacts = `${removed} artifact${removed === 1 ? "" : "s"}`;
   let head: string;
   if (removed === 0) head = "Nothing removed";
   else if (toTrash)
-    head = `Moved ${fmtSize(reclaimedBytes)} to Trash · ${locs} — empty Trash to reclaim`;
-  else head = `Reclaimed ${fmtSize(reclaimedBytes)} · ${locs} deleted`;
+    head = `Moved ${fmtSize(reclaimedBytes)} to Trash · ${artifacts} — empty Trash to reclaim`;
+  else head = `Reclaimed ${fmtSize(reclaimedBytes)} · ${artifacts} deleted`;
   if (failed > 0) head += ` · ${failed} couldn't be removed (in use?)`;
   return head;
 }

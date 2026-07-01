@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { fmtSize, cleanSummary, esc, shortPath, truncate } from "./format";
+import { fmtSize, fmtAge, cleanSummary, esc, shortPath, truncate } from "./format";
 
 describe("fmtSize", () => {
   it("scales bytes through B / KB / MB / GB", () => {
@@ -10,18 +10,27 @@ describe("fmtSize", () => {
   });
 });
 
+describe("fmtAge", () => {
+  it("scales seconds through today / days / months / years", () => {
+    expect(fmtAge(300)).toBe("today");
+    expect(fmtAge(5 * 86400)).toBe("5d ago");
+    expect(fmtAge(60 * 86400)).toBe("2mo ago");
+    expect(fmtAge(400 * 86400)).toBe("1y ago");
+  });
+});
+
 describe("cleanSummary", () => {
   it("permanent delete claims the space as reclaimed", () => {
-    expect(cleanSummary(4.2e9, 12, false, 0)).toBe("Reclaimed 4.2 GB · 12 locations deleted");
+    expect(cleanSummary(4.2e9, 12, false, 0)).toBe("Reclaimed 4.2 GB · 12 artifacts deleted");
   });
   it("trash is honest that disk isn't freed until the bin is emptied", () => {
     expect(cleanSummary(4.2e9, 12, true, 0)).toBe(
-      "Moved 4.2 GB to Trash · 12 locations — empty Trash to reclaim",
+      "Moved 4.2 GB to Trash · 12 artifacts — empty Trash to reclaim",
     );
   });
-  it("singularizes one location and appends a failure note", () => {
+  it("singularizes one artifact and appends a failure note", () => {
     expect(cleanSummary(1e6, 1, false, 2)).toBe(
-      "Reclaimed 1 MB · 1 location deleted · 2 couldn't be removed (in use?)",
+      "Reclaimed 1 MB · 1 artifact deleted · 2 couldn't be removed (in use?)",
     );
   });
   it("reports nothing removed when every path failed", () => {

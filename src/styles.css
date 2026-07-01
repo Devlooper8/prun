@@ -137,12 +137,20 @@ body {
   box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 2px 8px rgba(47,111,235,.25);
 }
 .btn--primary:hover { background: var(--accent-hi); }
-.btn--primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.btn--primary:disabled, .btn--danger:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+.btn--danger {
+  background: #d63b3b;
+  color: #fff;
+  border: 1px solid #e0695a;
+  box-shadow: 0 1px 0 rgba(255,255,255,.08) inset, 0 2px 8px rgba(214,59,59,.25);
+}
+.btn--danger:hover { background: #e0695a; }
 
 /* ── Filter pills ───────────────────────────────────────────── */
 .filters {
   display: flex; gap: 10px;
-  padding: 0 16px 14px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--line-soft);
 }
 .pill {
@@ -189,13 +197,15 @@ body {
 .cats__list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
 .cat {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto 1fr auto;
   align-items: center; gap: 10px;
   padding: 9px 8px; border-radius: var(--radius-sm);
   cursor: pointer;
-  transition: background .12s;
+  background: transparent; border: 0; color: inherit; font: inherit; text-align: left;
+  transition: background .12s, opacity .12s;
 }
 .cat:hover { background: var(--bg-row-hover); }
+.cat[aria-pressed="false"] { opacity: .45; }
 .cat__name { font-weight: 600; line-height: 1.15; }
 .cat__size { color: var(--txt-dim); font-variant-numeric: tabular-nums; font-size: 13.5px; }
 
@@ -206,7 +216,7 @@ body {
 .locs__list { list-style: none; flex: 1; overflow-y: auto; margin: 0 -8px; }
 .loc {
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: auto auto 1fr auto auto;
   align-items: center; gap: 12px;
   padding: 11px 10px; border-radius: var(--radius-sm);
   cursor: pointer;
@@ -216,6 +226,7 @@ body {
 .loc__path { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loc__proj { font-weight: 560; }
 .loc__art  { color: var(--txt-dim); }
+.loc__age  { color: var(--txt-faint); font-size: 12px; font-variant-numeric: tabular-nums; }
 .loc__size { color: var(--txt); font-variant-numeric: tabular-nums; }
 
 /* project groups */

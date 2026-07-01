@@ -142,7 +142,7 @@ const ECOSYSTEM_COLORS: Record<string, string> = {
   rust: "#df6a48",
   jvm: "#9b6cf2",
   python: "#4493f8",
-  php: "#21bd8a",
+  php: "#c851cd",
   go: "#00add8",
   cpp: "#6f8fd6",
   dotnet: "#b07cf6",
