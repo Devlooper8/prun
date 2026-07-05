@@ -91,6 +91,7 @@ body {
   border-bottom: 1px solid var(--line-soft);
 }
 .field {
+  position: relative;
   flex: 1;
   display: flex; align-items: center; gap: 10px;
   height: 42px; padding: 0 14px;
@@ -110,6 +111,20 @@ body {
   color: var(--txt); font-size: 14px; font-family: inherit;
   user-select: text;
 }
+
+/* recent-roots dropdown: plain positioned list, not native <datalist> —
+   see main.ts for why. */
+.recent {
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px); z-index: 2;
+  background: #23242a; border: 1px solid var(--line); border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(0,0,0,.45);
+  list-style: none; overflow: hidden;
+}
+.recent li {
+  padding: 9px 14px; font-size: 13.5px; color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer;
+}
+.recent li:hover { background: var(--bg-row-hover); }
 
 /* ── Buttons ────────────────────────────────────────────────── */
 .btn {

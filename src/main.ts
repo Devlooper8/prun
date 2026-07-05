@@ -21,6 +21,7 @@ import {
   openLogsDir,
 } from "./backend";
 import { enterRulesView } from "./rules-editor";
+import { $ } from "./dom";
 
 /* ───────────────────────── State ─────────────────────────────── */
 const state = {
@@ -39,7 +40,6 @@ const state = {
 };
 
 /* ───────────────────────── DOM refs ──────────────────────────── */
-const $ = <T extends Element>(s: string) => document.querySelector<T>(s)!;
 const catsList = $<HTMLUListElement>("#cats-list");
 const locsList = $<HTMLUListElement>("#locs-list");
 const locsTitle = $<HTMLSpanElement>("#locs-title");
@@ -47,7 +47,7 @@ const locsSize = $<HTMLSpanElement>("#locs-size");
 const selCount = $<HTMLSpanElement>("#sel-count");
 const selSize = $<HTMLSpanElement>("#sel-size");
 const rootInput = $<HTMLInputElement>("#root");
-const recentRoots = $<HTMLDataListElement>("#recent-roots");
+const recentRoots = $<HTMLUListElement>("#recent-roots");
 const ageInput = $<HTMLInputElement>("#age-days");
 const sizeInput = $<HTMLInputElement>("#size-mb");
 const cleanBtn = $<HTMLButtonElement>("#clean");
@@ -64,8 +64,10 @@ const viewRules = $<HTMLElement>("#view-rules");
 
 /* ───────────────────────── Helpers ───────────────────────────── */
 /* Recent scan roots, remembered across launches in the webview's localStorage
- * (the Tauri shell persists it to disk). A native <datalist> renders the dropdown
- * off the path input — no custom widget. */
+ * (the Tauri shell persists it to disk). Rendered as a plain <ul>, not a native
+ * <datalist> — Chromium filters datalist suggestions against the input's
+ * current text, so once the field held the just-scanned path verbatim, every
+ * *other* recent root stopped matching and silently vanished from the list. */
 const RECENT_KEY = "prun.recentRoots";
 function loadRecentRoots(): string[] {
   try {
@@ -78,9 +80,10 @@ function loadRecentRoots(): string[] {
 function renderRecentRoots(roots: string[]): void {
   recentRoots.innerHTML = "";
   for (const r of roots) {
-    const opt = document.createElement("option");
-    opt.value = r; // set via property, not innerHTML — no escaping needed
-    recentRoots.appendChild(opt);
+    const li = document.createElement("li");
+    li.textContent = r; // set via property, not innerHTML — no escaping needed
+    li.setAttribute("role", "option");
+    recentRoots.appendChild(li);
   }
 }
 function rememberRoot(root: string): void {
@@ -347,6 +350,13 @@ let confirmTimer: number | undefined;
 function updateFooter() {
   const res = state.result;
   if (!res) return;
+
+  // First scan is the primary call-to-action (blue "Scan"); once a result
+  // exists, later presses just refresh the same root, so it settles into the
+  // quieter "Rescan" it's always been.
+  rescanBtn.classList.replace("btn--primary", "btn--ghost");
+  rescanBtn.querySelector("span")!.textContent = "Rescan";
+
   const chosen = res.locations.filter((l) => state.selected.has(l.path));
   const total = chosen.reduce((s, l) => s + l.size, 0);
   selCount.textContent = String(chosen.length);
@@ -445,6 +455,7 @@ async function runScanInto(
 }
 
 function doScan() {
+  recentRoots.hidden = true;
   const opts: ScanOptions = {
     root: rootInput.value.trim() || "~/Projects",
     minAgeDays: state.filters.age ? state.ageDays : null,
@@ -600,8 +611,30 @@ function wire() {
     cancelScan();
   });
   rootInput.addEventListener("keydown", (e) => {
-    if ((e as KeyboardEvent).key === "Enter") doScan();
+    const key = (e as KeyboardEvent).key;
+    if (key === "Enter") doScan();
+    else if (key === "Escape") recentRoots.hidden = true;
   });
+
+  // recent-roots dropdown: open on focus/click (skip if there's no history),
+  // pick an entry with a click, dismiss on an outside click.
+  const showRecent = () => {
+    if (recentRoots.childElementCount > 0) recentRoots.hidden = false;
+  };
+  rootInput.addEventListener("focus", showRecent);
+  rootInput.addEventListener("click", showRecent);
+  recentRoots.addEventListener("click", (e) => {
+    const li = (e.target as HTMLElement).closest("li");
+    if (!li) return;
+    rootInput.value = li.textContent ?? "";
+    rootInput.focus(); // the mousedown before this click already blurred the input,
+    recentRoots.hidden = true; // so focus() re-fires `showRecent` — close must come after
+  });
+  document.addEventListener("click", (e) => {
+    if (e.target instanceof Node && !recentRoots.parentElement!.contains(e.target))
+      recentRoots.hidden = true;
+  });
+
   $(".field__icon").addEventListener("click", async () => {
     const dir = await pickFolder();
     if (dir) {
@@ -678,4 +711,3 @@ const savedRoots = loadRecentRoots();
 renderRecentRoots(savedRoots);
 if (savedRoots[0]) rootInput.value = savedRoots[0]; // reopen on the last root used
 wire();
-doScan();
