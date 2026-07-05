@@ -30,7 +30,7 @@ git2 = { version = "0.21", default-features = false }
 dirs = "6"
 trash = "5"
 globset = "0.4"
-toml = "0.8"
+toml = "1.1"
 open = "5"
 atomicwrites = "0.4"
 tracing = "0.1"
