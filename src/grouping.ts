@@ -62,7 +62,13 @@ export function groupByProject(
   root: string,
   mode: ScanMode,
 ): ProjectGroup[] {
-  const groups = Map.groupBy(locations, (loc) => groupKey(loc, root, mode));
+  const groups = new Map<string, Location[]>();
+  for (const loc of locations) {
+    const key = groupKey(loc, root, mode);
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(loc);
+    else groups.set(key, [loc]);
+  }
   return [...groups]
     .map(([name, locs]) => ({
       name,

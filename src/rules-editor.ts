@@ -208,7 +208,13 @@ function renderGroups() {
     return;
   }
 
-  const groups = Map.groupBy(filtered, (e) => e.ecosystem || "(unsorted)");
+  const groups = new Map<string, typeof filtered>();
+  for (const e of filtered) {
+    const key = e.ecosystem || "(unsorted)";
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(e);
+    else groups.set(key, [e]);
+  }
 
   for (const key of [...groups.keys()].sort()) {
     const items = groups.get(key)!;
