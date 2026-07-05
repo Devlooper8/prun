@@ -15,9 +15,12 @@ use crate::rules::{load_matcher, Matcher};
 use super::{rollup, Location, ScanEvent};
 
 pub fn scan_caches(cancel: &AtomicBool, emit: &(dyn Fn(ScanEvent) + Sync)) -> Result<(), String> {
-    scan_caches_with(&load_matcher(), cancel, emit)
+    scan_caches_with(&load_matcher()?, cancel, emit)
 }
 
+// Result kept for symmetry with scan_with's signature (its caller chain and the
+// CLI/command layer handle both scan kinds uniformly); this variant just never
+// has a failure path today.
 fn scan_caches_with(
     matcher: &Matcher,
     cancel: &AtomicBool,
@@ -26,7 +29,7 @@ fn scan_caches_with(
     let now = now_secs();
     let mut pending: Vec<(PathBuf, String, String)> = Vec::new(); // (path, ecosystem, cache name)
     for gc in &matcher.global_caches {
-        if !gc.enabled || !cache_applies(&gc.platform) {
+        if !gc.enabled || !cache_applies(gc.platform.as_deref()) {
             continue;
         }
         for raw in &gc.paths {
@@ -74,7 +77,9 @@ fn scan_caches_with(
         .collect();
 
     locations.sort_by(|a, b| b.size.cmp(&a.size));
-    let error_samples = error_samples.into_inner().unwrap();
+    let error_samples = error_samples
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for sample in &error_samples {
         tracing::warn!("unreadable during cache scan: {sample}");
     }
@@ -88,8 +93,8 @@ fn scan_caches_with(
 }
 
 /// A `platform = "macos"` cache is only relevant on macOS.
-fn cache_applies(platform: &Option<String>) -> bool {
-    match platform.as_deref() {
+fn cache_applies(platform: Option<&str>) -> bool {
+    match platform {
         Some("macos") => cfg!(target_os = "macos"),
         Some("windows") => cfg!(target_os = "windows"),
         Some("linux") => cfg!(target_os = "linux"),
@@ -104,11 +109,8 @@ mod tests {
     #[test]
     fn macos_only_cache_excluded_off_mac() {
         // The macOS-only cache (Xcode DerivedData) only applies on macOS.
-        assert_eq!(
-            cache_applies(&Some("macos".to_string())),
-            cfg!(target_os = "macos")
-        );
-        assert!(cache_applies(&None));
+        assert_eq!(cache_applies(Some("macos")), cfg!(target_os = "macos"));
+        assert!(cache_applies(None));
     }
 
     #[test]

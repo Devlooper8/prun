@@ -17,6 +17,9 @@ fn main() -> ExitCode {
             return prun_lib::cli::run();
         }
     }
-    prun_lib::run();
+    if let Err(e) = prun_lib::run() {
+        eprintln!("error: {e}");
+        return ExitCode::FAILURE;
+    }
     ExitCode::SUCCESS
 }

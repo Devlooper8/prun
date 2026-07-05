@@ -16,6 +16,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
+use ignore::gitignore::Gitignore;
 use ignore::{WalkBuilder, WalkState};
 use rayon::prelude::*;
 use walkdir::WalkDir;
@@ -33,7 +34,7 @@ use super::{rollup, Location, ScanEvent, ScanOptions};
 struct Candidate {
     path: PathBuf,
     ecosystem: String,
-    /// Precedence key: lower wins a contested path (rule index; junk offset by rules.len()).
+    /// Precedence key: lower wins a contested path (rule index; junk offset by `rules.len()`).
     rank: usize,
     is_dir: bool,
 }
@@ -51,7 +52,7 @@ pub fn scan(
     cancel: &AtomicBool,
     emit: &(dyn Fn(ScanEvent) + Sync),
 ) -> Result<(), String> {
-    scan_with(&load_matcher(), opts, cancel, emit)
+    scan_with(&load_matcher()?, opts, cancel, emit)
 }
 
 fn scan_with(
@@ -72,17 +73,48 @@ fn scan_with(
     };
     let now = now_secs();
 
-    // ── Phase 1: parallel discovery ──────────────────────────────────
-    // standard_filters(false)/hidden(false) are essential: the defaults honour
-    // .gitignore and skip dotdirs, hiding the very artifacts we hunt
-    // (node_modules/target are usually git-ignored; .venv/.gradle/.next are dotdirs).
+    let (phase1, mut roots) = discover(&root, matcher, cancel, emit);
+    let claimed_dirs: HashSet<PathBuf> = phase1
+        .iter()
+        .filter(|c| c.is_dir)
+        .map(|c| c.path.clone())
+        .collect();
+
+    roots.sort();
+    roots.dedup();
+    let phase2 = resolve_glob_roots(&roots, matcher, &claimed_dirs);
+
+    let pending = filter_candidates(
+        phase1,
+        phase2,
+        &root,
+        prunignore.as_ref(),
+        opts.skip_git_tracked,
+    );
+    let total = pending.len();
+    emit(ScanEvent::Discovered { total });
+
+    size_and_finish(&root, &pending, now, opts.min_age_days, total, cancel, emit)
+}
+
+/// Phase 1: the parallel discovery walk ([`ignore`]'s parallel walker). Classifies
+/// every entry, claiming artifact dirs and recording glob-rule project roots for
+/// phase 2. `standard_filters(false)`/`hidden(false)` are essential: the defaults
+/// honour `.gitignore` and skip dotdirs, hiding the very artifacts we hunt
+/// (`node_modules`/`target` are usually git-ignored; `.venv`/`.gradle`/`.next` are dotdirs).
+fn discover(
+    root: &Path,
+    matcher: &Matcher,
+    cancel: &AtomicBool,
+    emit: &(dyn Fn(ScanEvent) + Sync),
+) -> (Vec<Candidate>, Vec<(PathBuf, usize)>) {
     let sink = Sink::default();
     let threads = std::thread::available_parallelism()
         .map(|n| n.get().min(8))
         .unwrap_or(4);
     {
         let sink = &sink;
-        WalkBuilder::new(&root)
+        WalkBuilder::new(root)
             .standard_filters(false)
             .hidden(false)
             .follow_links(false)
@@ -90,24 +122,47 @@ fn scan_with(
             .build_parallel()
             .run(move || Box::new(move |result| visit(result, matcher, sink, cancel, emit)));
     }
+    let candidates = std::mem::take(
+        &mut *sink
+            .candidates
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    let roots = std::mem::take(
+        &mut *sink
+            .roots
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    (candidates, roots)
+}
 
-    let phase1 = std::mem::take(&mut *sink.candidates.lock().unwrap());
-    let claimed_dirs: HashSet<PathBuf> = phase1
-        .iter()
-        .filter(|c| c.is_dir)
-        .map(|c| c.path.clone())
-        .collect();
-
-    // ── Phase 2: resolve recursive globs under each discovered project root ──
-    let mut roots = std::mem::take(&mut *sink.roots.lock().unwrap());
-    roots.sort();
-    roots.dedup();
-    let phase2: Vec<Candidate> = roots
+/// Phase 2: resolve each rule's recursive `globs` under every discovered project
+/// root (a parallel subtree walk per root), pruning dirs phase 1 already claimed.
+fn resolve_glob_roots(
+    roots: &[(PathBuf, usize)],
+    matcher: &Matcher,
+    claimed_dirs: &HashSet<PathBuf>,
+) -> Vec<Candidate> {
+    roots
         .par_iter()
-        .flat_map_iter(|(r, ri)| glob_walk(r, *ri, matcher, &claimed_dirs))
-        .collect();
+        .flat_map_iter(|(r, ri)| glob_walk(r, *ri, matcher, claimed_dirs))
+        .collect()
+}
 
-    // ── Combine, dedup by path (precedence), subsume nested candidates ──
+/// Combine phase 1 + phase 2 (dedup by path, lower rank wins, nested candidates
+/// subsumed), then apply every sequential size-independent filter: subsumption,
+/// `.prunignore`, and git-tracked status. git2's repository cache is !Send/!Sync,
+/// so this stays single-threaded — the candidate set is small (tens to low
+/// hundreds), so that's cheap. Age is NOT decided here: a deep "newest file" mtime
+/// needs the same walk as sizing, so that gate lives in phase 3.
+fn filter_candidates(
+    phase1: Vec<Candidate>,
+    phase2: Vec<Candidate>,
+    root: &Path,
+    prunignore: Option<&Gitignore>,
+    skip_git_tracked: bool,
+) -> Vec<PendingLocation> {
     let mut by_path: HashMap<PathBuf, Candidate> = HashMap::new();
     for c in phase1.into_iter().chain(phase2.into_iter()) {
         match by_path.get(&c.path) {
@@ -123,27 +178,22 @@ fn scan_with(
         .map(|c| c.path.clone())
         .collect();
 
-    // ── Phase 2.5: sequential size-independent filtering ──────────────
-    // git2's repository cache is !Send/!Sync, so keep it on one thread. The
-    // candidate set is small (tens to low hundreds), so this is cheap.
     let mut git_cache: HashMap<PathBuf, Option<git2::Repository>> = HashMap::new();
     let mut pending: Vec<PendingLocation> = Vec::new();
     for c in by_path.into_values() {
         if has_ancestor_in(&c.path, &cand_dirs) {
             continue; // subsumed by a larger reclaim above it
         }
-        if let Some(gi) = &prunignore {
-            let rel = c.path.strip_prefix(&root).unwrap_or(&c.path);
+        if let Some(gi) = prunignore {
+            let rel = c.path.strip_prefix(root).unwrap_or(&c.path);
             if gi.matched_path_or_any_parents(rel, c.is_dir).is_ignore() {
                 continue;
             }
         }
         let git_ignored = is_git_ignored(&c.path, &mut git_cache);
-        if opts.skip_git_tracked && !git_ignored {
+        if skip_git_tracked && !git_ignored {
             continue; // not ignored by git => possibly tracked => leave alone
         }
-        // Age is no longer decided here: a deep "newest file" mtime needs the same
-        // walk as sizing, so the age gate moves into phase 3 (see below).
         pending.push(PendingLocation {
             project: parent_name(&c.path),
             artifact: leaf_artifact(&c.path),
@@ -152,17 +202,29 @@ fn scan_with(
             git_ignored,
         });
     }
+    pending
+}
 
-    let total = pending.len();
-    emit(ScanEvent::Discovered { total });
-
-    // ── Phase 3: parallel sizing (also resolves deep age + read errors) ──
-    // One walk per candidate yields size, newest mtime, and an error count. The
-    // min-age gate runs here, post-walk, because honest "untouched for N days" needs
-    // the newest file's mtime — not the top dir's, which goes stale during rebuilds.
-    // Too-fresh candidates are still walked (so the progress bar completes) but not
-    // offered. `cancel` lets an in-flight scan stop promptly when the user asks.
-    let min_age_secs = opts.min_age_days.map(|d| d * 86_400);
+/// Phase 3: parallel sizing (also resolves deep age + read errors), then sorts,
+/// logs unreadable samples, and emits the final `Done` event. One walk per
+/// candidate yields size, newest mtime, and an error count. The min-age gate runs
+/// here, post-walk, because honest "untouched for N days" needs the newest file's
+/// mtime — not the top dir's, which goes stale during rebuilds. Too-fresh
+/// candidates are still walked (so the progress bar completes) but not offered.
+/// `cancel` lets an in-flight scan stop promptly when the user asks.
+// Result kept so this can sit as scan_with's tail expression (whose own Result
+// comes from the earlier is_dir check) and stay symmetric with
+// scan_caches_with's sibling signature.
+fn size_and_finish(
+    root: &Path,
+    pending: &[PendingLocation],
+    now: u64,
+    min_age_days: Option<u64>,
+    total: usize,
+    cancel: &AtomicBool,
+    emit: &(dyn Fn(ScanEvent) + Sync),
+) -> Result<(), String> {
+    let min_age_secs = min_age_days.map(|d| d * 86_400);
     let done = AtomicUsize::new(0);
     let errors = AtomicU64::new(0);
     let error_samples = Mutex::new(Vec::new());
@@ -201,7 +263,9 @@ fn scan_with(
         .collect();
 
     locations.sort_by(|a, b| b.size.cmp(&a.size));
-    let error_samples = error_samples.into_inner().unwrap();
+    let error_samples = error_samples
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     for sample in &error_samples {
         tracing::warn!("unreadable during scan: {sample}");
     }
@@ -225,12 +289,11 @@ fn visit(
     if cancel.load(Ordering::Relaxed) {
         return WalkState::Quit; // user cancelled mid-discovery
     }
-    let entry = match result {
-        Ok(e) => e,
-        Err(_) => return WalkState::Continue,
+    let Ok(entry) = result else {
+        return WalkState::Continue;
     };
     let path = entry.path();
-    let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+    let is_dir = entry.file_type().is_some_and(|t| t.is_dir());
     let name = entry.file_name().to_string_lossy();
 
     // Heartbeat: prove liveness long before any size is known.
@@ -300,14 +363,20 @@ fn visit(
         // 6. glob-rule root detection from marker files
         if let Some(parent) = path.parent() {
             if let Some(idxs) = m.glob_marker_exact.get(name.as_ref()) {
-                let mut roots = sink.roots.lock().unwrap();
+                let mut roots = sink
+                    .roots
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for ri in idxs {
                     roots.push((parent.to_path_buf(), *ri));
                 }
             }
             let mut owners = m.glob_markers.matches(Path::new(name.as_ref())).peekable();
             if owners.peek().is_some() {
-                let mut roots = sink.roots.lock().unwrap();
+                let mut roots = sink
+                    .roots
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for ri in owners {
                     roots.push((parent.to_path_buf(), ri));
                 }
@@ -326,12 +395,15 @@ fn junk_glob_owner(m: &Matcher, name: &str) -> Option<usize> {
 }
 
 fn push_cand(sink: &Sink, path: &Path, ecosystem: &str, rank: usize, is_dir: bool) {
-    sink.candidates.lock().unwrap().push(Candidate {
-        path: path.to_path_buf(),
-        ecosystem: ecosystem.to_string(),
-        rank,
-        is_dir,
-    });
+    sink.candidates
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(Candidate {
+            path: path.to_path_buf(),
+            ecosystem: ecosystem.to_string(),
+            rank,
+            is_dir,
+        });
 }
 
 /// Walk one project root's subtree, collecting recursive-glob candidates while
@@ -347,9 +419,8 @@ fn glob_walk(
     if !rule.enabled {
         return Vec::new();
     }
-    let set = match &rule.glob_set {
-        Some(s) => s,
-        None => return Vec::new(),
+    let Some(set) = &rule.glob_set else {
+        return Vec::new();
     };
     let mut found: Vec<Candidate> = Vec::new();
     {
@@ -404,7 +475,7 @@ fn match_dir_entry(p: &Path, segs: &[String]) -> Option<PathBuf> {
     {
         return None;
     }
-    p.ancestors().nth(segs.len()).map(|r| r.to_path_buf())
+    p.ancestors().nth(segs.len()).map(Path::to_path_buf)
 }
 
 fn has_ancestor_in(p: &Path, set: &HashSet<PathBuf>) -> bool {
@@ -646,9 +717,9 @@ mod tests {
         assert!(arts[0].0.ends_with("not-named-venv"));
     }
 
-    /// A CMake build tree is identified by the `CMakeCache.txt` it holds, so an
+    /// A `CMake` build tree is identified by the `CMakeCache.txt` it holds, so an
     /// out-of-source build dir is reclaimed WHOLE regardless of its name — instead
-    /// of fragmenting into CMakeFiles/, CMakeCache.txt and build.ninja listed
+    /// of fragmenting into `CMakeFiles`/, CMakeCache.txt and build.ninja listed
     /// separately (the bug the cmake-build reclaim rule fixes).
     #[test]
     fn cmake_build_tree_reclaimed_whole_by_marker() {
@@ -905,7 +976,9 @@ mod tests {
         assert!(arts.iter().any(|(a, _)| a == "/.venv"));
         // files inside a claimed dir must not be listed on their own
         assert!(
-            !arts.iter().any(|(a, _)| a.ends_with(".pyc")),
+            !arts.iter().any(|(a, _)| Path::new(a)
+                .extension()
+                .is_some_and(|e| e.eq_ignore_ascii_case("pyc"))),
             "contents of a claimed __pycache__ leaked: {arts:?}"
         );
         assert!(

@@ -23,8 +23,13 @@ mod testsupport;
 // `main` installs the hook before doing anything else (GUI and CLI alike).
 pub use diagnostics::install_panic_hook;
 
+/// Boots the Tauri app.
+///
+/// # Errors
+///
+/// Returns an error if the Tauri runtime fails to start.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
-pub fn run() {
+pub fn run() -> Result<(), String> {
     // Held for the whole process so buffered log lines flush on exit.
     let _log_guard = diagnostics::init_logging();
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "prun starting");
@@ -62,5 +67,5 @@ pub fn run() {
             commands::reset_rules
         ])
         .run(context)
-        .expect("error while running tauri application");
+        .map_err(|e| e.to_string())
 }

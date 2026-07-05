@@ -31,22 +31,26 @@ pub(crate) struct CompiledRule {
 impl CompiledRule {
     /// Is one of this rule's markers a direct child of `dir`?
     pub(crate) fn marker_in(&self, dir: &Path) -> bool {
-        dir_has_any(dir, &self.exact_markers, &self.marker_glob_set)
+        dir_has_any(dir, &self.exact_markers, self.marker_glob_set.as_ref())
     }
 
     /// Is one of this rule's anti-markers a direct child of `dir`? When true the
-    /// rule must NOT treat `dir` as a root: a CMake build tree is reclaimed
+    /// rule must NOT treat `dir` as a root: a `CMake` build tree is reclaimed
     /// wholesale, but a dir that *also* holds the source `CMakeLists.txt` is the
     /// project root (an in-source build), so it's left to the per-file globs.
     pub(crate) fn anti_marker_in(&self, dir: &Path) -> bool {
-        dir_has_any(dir, &self.exact_anti_markers, &self.anti_marker_glob_set)
+        dir_has_any(
+            dir,
+            &self.exact_anti_markers,
+            self.anti_marker_glob_set.as_ref(),
+        )
     }
 }
 
 /// True if `dir` directly contains a name in `exact`, or a child whose name
 /// matches `glob_set`. Shared by the marker and anti-marker checks; a single
 /// `read_dir` services the glob case.
-fn dir_has_any(dir: &Path, exact: &[String], glob_set: &Option<GlobSet>) -> bool {
+fn dir_has_any(dir: &Path, exact: &[String], glob_set: Option<&GlobSet>) -> bool {
     for m in exact {
         if dir.join(m).exists() {
             return true;
@@ -71,9 +75,9 @@ pub(crate) struct CompiledJunk {
 
 pub(crate) struct Matcher {
     pub(crate) global_ignore: HashSet<String>,
-    /// last path segment -> (rule_idx, full segments) for every rule `dirs` entry.
+    /// last path segment -> (`rule_idx`, full segments) for every rule `dirs` entry.
     pub(crate) dir_index: HashMap<String, Vec<(usize, Vec<String>)>>,
-    /// last path segment -> (junk_idx, full segments) for every junk `dirs` entry.
+    /// last path segment -> (`junk_idx`, full segments) for every junk `dirs` entry.
     pub(crate) junk_dir_index: HashMap<String, Vec<(usize, Vec<String>)>>,
     /// Junk file/dir glob patterns, each paired with its owning junk index.
     pub(crate) junk_globs: GlobOwners,
@@ -112,7 +116,7 @@ fn build_globset(patterns: &[String]) -> Option<GlobSet> {
 
 /// A compiled glob set whose matches map back to owner indices. Patterns and
 /// owners are only ever appended together (via [`GlobOwnersBuilder::add`]), so a
-/// GlobSet match index always maps straight back to an owner — callers read owners
+/// `GlobSet` match index always maps straight back to an owner — callers read owners
 /// via [`matches`](GlobOwners::matches) and never touch the parallel indexing.
 pub(crate) struct GlobOwners {
     set: GlobSet,

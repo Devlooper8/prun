@@ -92,12 +92,17 @@ fn prune_crash_reports(dir: &Path, keep: usize) {
         return;
     };
     let mut crashes: Vec<PathBuf> = entries
-        .filter_map(|e| e.ok())
+        .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| {
-            p.file_name()
+            let starts_with_crash = p
+                .file_name()
                 .and_then(|n| n.to_str())
-                .is_some_and(|n| n.starts_with("crash-") && n.ends_with(".txt"))
+                .is_some_and(|n| n.starts_with("crash-"));
+            let has_txt_ext = p
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"));
+            starts_with_crash && has_txt_ext
         })
         .collect();
     crashes.sort();

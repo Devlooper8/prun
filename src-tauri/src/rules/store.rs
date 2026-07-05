@@ -27,15 +27,15 @@ fn override_path() -> Option<PathBuf> {
 /// embedded default. Rebuilt per scan (parse + compile is well under a
 /// millisecond) so edits to the override take effect on the next scan without
 /// restarting the app.
-pub(crate) fn load_matcher() -> Matcher {
-    Matcher::compile(load_rules())
+pub(crate) fn load_matcher() -> Result<Matcher, String> {
+    Ok(Matcher::compile(load_rules()?))
 }
 
-/// Parse the compiled-in default ruleset. Infallible by construction: the embedded
-/// TOML ships in the binary and is covered by tests, so a parse failure is a build
-/// bug, not a runtime condition.
-fn embedded() -> RuleFile {
-    toml::from_str(EMBEDDED).expect("embedded prun-rules.toml must parse")
+/// Parse the compiled-in default ruleset. Should never fail in a real build (the
+/// embedded TOML ships in the binary and is covered by tests), but a runtime parse
+/// still returns a `Result` rather than asserting it away.
+fn embedded() -> Result<RuleFile, String> {
+    toml::from_str(EMBEDDED).map_err(|e| format!("embedded prun-rules.toml failed to parse: {e}"))
 }
 
 /// Where the override lives and whether it is currently in effect — surfaced in
@@ -57,25 +57,37 @@ pub fn rules_status() -> RulesStatus {
         .as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let exists = path.as_ref().map(|p| p.exists()).unwrap_or(false);
+    let exists = path.as_ref().is_some_and(|p| p.exists());
 
     let mut using_override = false;
     let mut error = None;
-    let rf: RuleFile = match (exists, path.as_ref()) {
+    let rf: Option<RuleFile> = match (exists, path.as_ref()) {
         (true, Some(p)) => match fs::read_to_string(p)
             .map_err(|e| e.to_string())
             .and_then(|t| toml::from_str::<RuleFile>(&t).map_err(|e| e.to_string()))
         {
             Ok(rf) => {
                 using_override = true;
-                merge_over_embedded(rf)
+                match merge_over_embedded(rf) {
+                    Ok(merged) => Some(merged),
+                    Err(e) => {
+                        error = Some(e);
+                        None
+                    }
+                }
             }
             Err(e) => {
                 error = Some(e);
-                embedded()
+                embedded().ok()
             }
         },
-        _ => embedded(),
+        _ => match embedded() {
+            Ok(rf) => Some(rf),
+            Err(e) => {
+                error = Some(e);
+                None
+            }
+        },
     };
 
     RulesStatus {
@@ -83,9 +95,15 @@ pub fn rules_status() -> RulesStatus {
         override_exists: exists,
         using_override,
         error,
-        rule_count: rf.rules.iter().filter(|r| r.enabled).count(),
-        junk_count: rf.junk.iter().filter(|j| j.enabled).count(),
-        cache_count: rf.global_cache.iter().filter(|c| c.enabled).count(),
+        rule_count: rf
+            .as_ref()
+            .map_or(0, |rf| rf.rules.iter().filter(|r| r.enabled).count()),
+        junk_count: rf
+            .as_ref()
+            .map_or(0, |rf| rf.junk.iter().filter(|j| j.enabled).count()),
+        cache_count: rf
+            .as_ref()
+            .map_or(0, |rf| rf.global_cache.iter().filter(|c| c.enabled).count()),
     }
 }
 
@@ -108,7 +126,7 @@ pub fn ensure_override_file() -> Result<String, String> {
 /// The active ruleset as structured data for the editor: the override if present
 /// and parseable, else the embedded default. Never fails — a broken override
 /// falls back to embedded so the editor always opens with valid data.
-pub fn load_rules() -> RuleFile {
+pub fn load_rules() -> Result<RuleFile, String> {
     if let Some(path) = override_path() {
         if let Ok(text) = fs::read_to_string(&path) {
             match toml::from_str::<RuleFile>(&text) {
@@ -142,26 +160,26 @@ fn load_rules_from(path: &Path) -> Result<RuleFile, String> {
 /// precedence is stable), embedded ids the override doesn't mention come through
 /// fresh, ids listed in `removed` are dropped, and override-only ids (the user's own
 /// rules) are appended after the built-ins.
-fn merge_over_embedded(ov: RuleFile) -> RuleFile {
-    let base = embedded();
-    RuleFile {
+fn merge_over_embedded(ov: RuleFile) -> Result<RuleFile, String> {
+    let base = embedded()?;
+    Ok(RuleFile {
         schema_version: base.schema_version,
         defaults: ov.defaults,
-        rules: merge_section(base.rules, ov.rules, &ov.removed.rules, |r| r.id.as_str()),
-        junk: merge_section(base.junk, ov.junk, &ov.removed.junk, |j| j.id.as_str()),
+        rules: merge_section(&base.rules, &ov.rules, &ov.removed.rules, |r| r.id.as_str()),
+        junk: merge_section(&base.junk, &ov.junk, &ov.removed.junk, |j| j.id.as_str()),
         global_cache: merge_section(
-            base.global_cache,
-            ov.global_cache,
+            &base.global_cache,
+            &ov.global_cache,
             &ov.removed.global_cache,
             |c| c.id.as_str(),
         ),
         removed: Removed::default(),
-    }
+    })
 }
 
 fn merge_section<T: Clone>(
-    base: Vec<T>,
-    over: Vec<T>,
+    base: &[T],
+    over: &[T],
     removed: &[String],
     id_of: impl Fn(&T) -> &str + Copy,
 ) -> Vec<T> {
@@ -170,7 +188,7 @@ fn merge_section<T: Clone>(
     let base_ids: HashSet<&str> = base.iter().map(id_of).collect();
 
     let mut out: Vec<T> = Vec::with_capacity(base.len() + over.len());
-    for b in &base {
+    for b in base {
         let id = id_of(b);
         if removed.contains(id) {
             continue; // tombstoned built-in
@@ -180,7 +198,7 @@ fn merge_section<T: Clone>(
             None => b.clone(),       // fresh embedded
         });
     }
-    for o in &over {
+    for o in over {
         if !base_ids.contains(id_of(o)) {
             out.push(o.clone()); // user-added entry, appended after the built-ins
         }
@@ -192,13 +210,13 @@ fn merge_section<T: Clone>(
 /// from the embedded entry of the same `id`, plus a per-section list of embedded ids
 /// absent from the submission (built-ins the user removed). Unmodified built-ins are
 /// dropped so their future updates keep flowing.
-fn delta_against_embedded(full: &RuleFile) -> RuleFile {
-    let base = embedded();
+fn delta_against_embedded(full: &RuleFile) -> Result<RuleFile, String> {
+    let base = embedded()?;
     let (rules, rm_rules) = delta_section(&base.rules, &full.rules, |r| r.id.as_str());
     let (junk, rm_junk) = delta_section(&base.junk, &full.junk, |j| j.id.as_str());
     let (global_cache, rm_cache) =
         delta_section(&base.global_cache, &full.global_cache, |c| c.id.as_str());
-    RuleFile {
+    Ok(RuleFile {
         schema_version: full.schema_version,
         defaults: full.defaults.clone(),
         rules,
@@ -209,7 +227,7 @@ fn delta_against_embedded(full: &RuleFile) -> RuleFile {
             junk: rm_junk,
             global_cache: rm_cache,
         },
-    }
+    })
 }
 
 fn delta_section<T: Clone + PartialEq>(
@@ -231,20 +249,20 @@ fn delta_section<T: Clone + PartialEq>(
         .iter()
         .map(id_of)
         .filter(|id| !full_ids.contains(id))
-        .map(|s| s.to_string())
+        .map(|s| (*s).to_string())
         .collect();
     (kept, removed)
 }
 
 /// Validate, serialize, and atomically write the full ruleset to the override.
-pub fn save_rules(rules: RuleFile) -> Result<(), String> {
+pub fn save_rules(rules: &RuleFile) -> Result<(), String> {
     let path = override_path().ok_or("no OS config directory available")?;
-    save_rules_to(&path, &rules)
+    save_rules_to(&path, rules)
 }
 
 fn save_rules_to(path: &Path, rules: &RuleFile) -> Result<(), String> {
     validate_rules(rules)?;
-    let delta = delta_against_embedded(rules);
+    let delta = delta_against_embedded(rules)?;
     let body = toml::to_string_pretty(&delta).map_err(|e| format!("serialize: {e}"))?;
     let text = format!(
         "# Prun rules — managed by the in-app editor. Stored as a DELTA over the\n\
@@ -369,7 +387,7 @@ mod tests {
             "saving the unmodified default set must store an empty delta; got {} rules",
             raw.rules.len()
         );
-        let merged = merge_over_embedded(raw); // re-expands to the full set
+        let merged = merge_over_embedded(raw).expect("merge"); // re-expands to the full set
         let _ = fs::remove_dir_all(&root);
         assert_eq!(rf.rules.len(), merged.rules.len());
         assert_eq!(rf.global_cache.len(), merged.global_cache.len());
@@ -381,7 +399,7 @@ mod tests {
     fn merge_surfaces_new_builtin() {
         let mut ov: RuleFile = toml::from_str(EMBEDDED).unwrap();
         ov.rules.retain(|r| r.id != "cmake-build"); // an override saved before this rule shipped
-        let merged = merge_over_embedded(ov);
+        let merged = merge_over_embedded(ov).expect("merge");
         assert!(
             merged.rules.iter().any(|r| r.id == "cmake-build"),
             "a new built-in must surface for an override that predates it"
@@ -397,7 +415,7 @@ mod tests {
             .find(|r| r.id == "rust-cargo")
             .unwrap()
             .enabled = false;
-        let merged = merge_over_embedded(ov);
+        let merged = merge_over_embedded(ov).expect("merge");
         let rust = merged.rules.iter().find(|r| r.id == "rust-cargo").unwrap();
         assert!(
             !rust.enabled,
@@ -411,7 +429,7 @@ mod tests {
     fn merge_tombstone_suppresses_builtin() {
         let ov: RuleFile =
             toml::from_str("schema_version = 3\n[removed]\nrules = [\"go\"]\n").unwrap();
-        let merged = merge_over_embedded(ov);
+        let merged = merge_over_embedded(ov).expect("merge");
         assert!(
             !merged.rules.iter().any(|r| r.id == "go"),
             "tombstoned built-in must be dropped"
@@ -438,7 +456,7 @@ mod tests {
         full.rules.push(mine); // new user rule
         full.rules.retain(|r| r.id != "go"); // remove a built-in
 
-        let d = delta_against_embedded(&full);
+        let d = delta_against_embedded(&full).expect("delta");
         let ids: Vec<&str> = d.rules.iter().map(|r| r.id.as_str()).collect();
         assert!(
             ids.contains(&"rust-cargo"),
@@ -469,7 +487,7 @@ mod tests {
             .unwrap()
             .enabled = true;
         save_rules_to(&path, &full).expect("save");
-        let merged = merge_over_embedded(load_rules_from(&path).expect("load"));
+        let merged = merge_over_embedded(load_rules_from(&path).expect("load")).expect("merge");
         let _ = fs::remove_dir_all(&root);
         assert_eq!(
             full.rules.len(),

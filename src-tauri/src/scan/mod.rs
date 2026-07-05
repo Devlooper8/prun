@@ -86,7 +86,9 @@ pub(crate) const ERROR_SAMPLE_CAP: usize = 5;
 /// Record one read-error example into the capped list — the first
 /// [`ERROR_SAMPLE_CAP`] win. Shared by the parallel sizing loops, hence the Mutex.
 pub(crate) fn push_error_sample(samples: &Mutex<Vec<String>>, sample: &str) {
-    let mut s = samples.lock().unwrap();
+    let mut s = samples
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     if s.len() < ERROR_SAMPLE_CAP {
         s.push(sample.to_string());
     }

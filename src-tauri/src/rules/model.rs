@@ -21,13 +21,15 @@ fn d_min_age() -> u64 {
 fn d_global_ignore() -> Vec<String> {
     [".git", ".hg", ".svn", ".jj"]
         .iter()
-        .map(|s| s.to_string())
+        .map(|s| (*s).to_string())
         .collect()
 }
 
 fn d_schema_version() -> u32 {
     3
 }
+// Kept as &bool: serde's skip_serializing_if always calls the predicate by
+// reference, so a by-value bool here would not compile as a serde attribute.
 fn is_false(b: &bool) -> bool {
     !*b
 }

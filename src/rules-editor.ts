@@ -21,8 +21,7 @@ import {
 } from "./types";
 import { IS_TAURI, loadRules, saveRules, resetRules, openRulesFile, rulesStatus } from "./backend";
 import { defaultDefaults, sampleRuleFile } from "./sample-data";
-
-const $ = <T extends Element>(s: string) => document.querySelector<T>(s)!;
+import { $ } from "./dom";
 
 const listEl = $<HTMLDivElement>("#re-list");
 const detailEl = $<HTMLDivElement>("#re-detail");
@@ -616,12 +615,18 @@ function normalize(rf: RuleFile): RuleFile {
 }
 
 async function loadModel() {
-  const model = IS_TAURI ? await loadRules() : sampleRuleFile();
-  ed.model = normalize(model);
-  ed.loaded = true;
-  ed.selected = null;
-  setDirty(false);
-  errorEl.hidden = true;
+  try {
+    const model = IS_TAURI ? await loadRules() : sampleRuleFile();
+    ed.model = normalize(model);
+    ed.loaded = true;
+    ed.selected = null;
+    setDirty(false);
+    errorEl.hidden = true;
+  } catch (err) {
+    errorEl.textContent = String(err);
+    errorEl.hidden = false;
+    errorEl.scrollIntoView({ block: "nearest" });
+  }
 }
 
 function setDirty(v: boolean) {

@@ -21,6 +21,7 @@ use crate::scan::{scan, scan_caches, Location, ScanEvent, ScanOptions};
 
 /// Is `arg` one of our subcommands? `main` uses this so a stray OS-passed argument
 /// doesn't divert a normal GUI launch into CLI mode.
+#[must_use]
 pub fn is_subcommand(arg: &str) -> bool {
     matches!(
         arg,
@@ -39,6 +40,7 @@ pub fn is_subcommand(arg: &str) -> bool {
 }
 
 /// Entry point: parse `std::env::args` and run, writing to real stdout.
+#[must_use]
 pub fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut out = std::io::stdout().lock();
@@ -49,8 +51,7 @@ pub fn run() -> ExitCode {
 pub(crate) fn run_args(args: &[String], out: &mut dyn Write) -> ExitCode {
     let (cmd, rest) = args
         .split_first()
-        .map(|(c, r)| (c.as_str(), r))
-        .unwrap_or(("help", &[]));
+        .map_or(("help", &[] as &[String]), |(c, r)| (c.as_str(), r));
     match cmd {
         "scan" => cmd_scan(rest, out),
         "caches" => cmd_caches(rest, out),
@@ -119,21 +120,30 @@ fn collect_scan(run: impl FnOnce(&(dyn Fn(ScanEvent) + Sync)) -> Result<(), Stri
     let errors = AtomicU64::new(0);
     let samples: Mutex<Vec<String>> = Mutex::new(Vec::new());
     let result = run(&|ev| match ev {
-        ScanEvent::Located { location, .. } => found.lock().unwrap().push(location),
+        ScanEvent::Located { location, .. } => found
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(location),
         ScanEvent::Done {
             errors: e,
             error_samples,
             ..
         } => {
             errors.store(e, Ordering::Relaxed);
-            *samples.lock().unwrap() = error_samples;
+            *samples
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner) = error_samples;
         }
         _ => {}
     });
     Collected {
-        locations: found.into_inner().unwrap(),
+        locations: found
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
         errors: errors.load(Ordering::Relaxed),
-        error_samples: samples.into_inner().unwrap(),
+        error_samples: samples
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
         result,
     }
 }
@@ -183,7 +193,8 @@ fn finish_scan(out: &mut dyn Write, what: &str, collected: Collected, json: bool
         if locations.len() == 1 { "" } else { "s" }
     );
     if errors > 0 {
-        summary.push_str(&format!(" ({errors} unreadable)"));
+        use std::fmt::Write as _;
+        let _ = write!(summary, " ({errors} unreadable)");
     }
     let _ = writeln!(out, "{summary}");
     for sample in &error_samples {
@@ -246,11 +257,14 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
         locs.sort_by(|a, b| b.size.cmp(&a.size)); // largest-first, like the GUI
         locs.into_iter().map(|l| l.path).collect()
     } else {
-        positionals(args).iter().map(|s| s.to_string()).collect()
+        positionals(args).iter().map(|s| (*s).to_string()).collect()
     };
 
     if paths.is_empty() {
-        let _ = writeln!(out, "error: `clean` needs at least one path (or --scan PATH)");
+        let _ = writeln!(
+            out,
+            "error: `clean` needs at least one path (or --scan PATH)"
+        );
         return ExitCode::FAILURE;
     }
 
@@ -264,7 +278,10 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
         }
         let verb = if permanent { "delete" } else { "trash" };
         let n = paths.len();
-        let mut line = format!("dry run: would {verb} {n} path{}", if n == 1 { "" } else { "s" });
+        let mut line = format!(
+            "dry run: would {verb} {n} path{}",
+            if n == 1 { "" } else { "s" }
+        );
         if needs_confirm && !dry_run {
             line.push_str(" — re-run with --yes to do it");
         }
@@ -300,15 +317,12 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
 /// Print where the log files and crash reports live, so a bug report can say
 /// "run `prun logs` and attach what's there".
 fn cmd_logs(out: &mut dyn Write) -> ExitCode {
-    match crate::diagnostics::log_dir() {
-        Some(dir) => {
-            let _ = writeln!(out, "{}", dir.display());
-            ExitCode::SUCCESS
-        }
-        None => {
-            let _ = writeln!(out, "error: no data directory on this system");
-            ExitCode::FAILURE
-        }
+    if let Some(dir) = crate::diagnostics::log_dir() {
+        let _ = writeln!(out, "{}", dir.display());
+        ExitCode::SUCCESS
+    } else {
+        let _ = writeln!(out, "error: no data directory on this system");
+        ExitCode::FAILURE
     }
 }
 
@@ -367,7 +381,7 @@ fn human_size(bytes: u64) -> String {
     const MB: u64 = 1_000_000;
     const GB: u64 = 1_000_000_000;
     if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
+        format!("{}.{} GB", bytes / GB, (bytes % GB) * 10 / GB)
     } else if bytes >= MB {
         format!("{} MB", bytes / MB)
     } else if bytes >= KB {
@@ -383,7 +397,7 @@ mod tests {
     use crate::testsupport::{fresh_tmp, touch};
 
     fn run(args: &[&str]) -> (String, ExitCode) {
-        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let owned: Vec<String> = args.iter().map(|s| (*s).to_string()).collect();
         let mut buf: Vec<u8> = Vec::new();
         let code = run_args(&owned, &mut buf);
         (String::from_utf8(buf).unwrap(), code)
@@ -475,7 +489,10 @@ mod tests {
         let still_there = target.exists();
         let _ = std::fs::remove_dir_all(&root);
         assert!(out.contains("would remove"), "previews paths; got {out}");
-        assert!(out.contains("--yes"), "hints how to do it for real; got {out}");
+        assert!(
+            out.contains("--yes"),
+            "hints how to do it for real; got {out}"
+        );
         assert!(still_there, "a scan clean without --yes deletes nothing");
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
     }
@@ -496,7 +513,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         assert!(out.contains("removed"), "reports the removal; got {out}");
         assert!(target_gone, "--yes deletes the scanned artifact");
-        assert!(marker_kept, "only the artifact goes, not the project marker");
+        assert!(
+            marker_kept,
+            "only the artifact goes, not the project marker"
+        );
         assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
     }
 

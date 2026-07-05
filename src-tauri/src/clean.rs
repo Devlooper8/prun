@@ -151,7 +151,7 @@ mod tests {
     }
 
     /// One side of the wire-contract triangle (see src/wire-contract.test.ts):
-    /// pins `fixture == serde's actual serialization` for CleanEvent.
+    /// pins `fixture == serde's actual serialization` for `CleanEvent`.
     #[test]
     fn clean_event_fixture_matches_serialization() {
         let events = vec![

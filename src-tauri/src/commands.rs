@@ -32,18 +32,27 @@ pub struct Reclaimable(Arc<Mutex<HashSet<PathBuf>>>);
 
 impl Reclaimable {
     fn reset(&self) {
-        self.0.lock().unwrap().clear();
+        self.lock().clear();
     }
     fn offer(&self, path: &str) {
-        self.0.lock().unwrap().insert(PathBuf::from(path));
+        self.lock().insert(PathBuf::from(path));
     }
     /// The first path that no scan has offered, if any — that clean must be refused.
     fn first_unoffered<'a>(&self, paths: &'a [String]) -> Option<&'a str> {
-        let set = self.0.lock().unwrap();
+        let set = self.lock();
         paths
             .iter()
             .map(String::as_str)
             .find(|p| !set.contains(Path::new(p)))
+    }
+    /// A panic while holding this lock would only ever happen mid-`insert`/`clear`,
+    /// never leaving the set in a state that would authorize something a scan
+    /// didn't surface — so a poisoned lock is safe to recover rather than propagate
+    /// (which would otherwise wedge every future scan/clean until the app restarts).
+    fn lock(&self) -> std::sync::MutexGuard<'_, HashSet<PathBuf>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -161,6 +170,8 @@ pub async fn scan_caches(
 
 /// Ask the running scan (project or caches) to stop. Idempotent and safe to call
 /// when nothing is scanning — the next scan clears the flag before starting.
+// State is a thin reference wrapper; by-value is what #[tauri::command] expects
+// for extractor parameters (a &State wouldn't match the generated binding).
 #[tauri::command]
 pub fn cancel_scan(cancel: State<'_, Cancel>) {
     cancel.signal();
@@ -192,7 +203,7 @@ pub async fn clean(
             // A dropped receiver (window closed mid-clean) is not worth aborting
             // the deletions over — just stop trying to deliver.
             let _ = on_event.send(event);
-        })
+        });
     })
     .await
     .map_err(|e| e.to_string())
@@ -208,15 +219,18 @@ pub fn rules_status() -> RulesStatus {
 /// Load the active ruleset (override if present and valid, else built-in
 /// defaults) as structured data for the in-app editor.
 #[tauri::command]
-pub fn load_rules() -> RuleFile {
+pub fn load_rules() -> Result<RuleFile, String> {
     get_rules()
 }
 
 /// Validate and save the full ruleset to the override file. The editor's next
 /// scan picks it up (the matcher reloads per scan).
 #[tauri::command]
+// rules arrives owned — Tauri deserializes the IPC payload straight into this
+// parameter, so it can't be taken by reference here; the borrow moves to the
+// call below instead.
 pub fn save_rules(rules: RuleFile) -> Result<(), String> {
-    do_save_rules(rules)
+    do_save_rules(&rules)
 }
 
 /// Delete the override so the built-in defaults take over again.
