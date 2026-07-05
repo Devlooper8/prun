@@ -164,7 +164,7 @@ fn filter_candidates(
     skip_git_tracked: bool,
 ) -> Vec<PendingLocation> {
     let mut by_path: HashMap<PathBuf, Candidate> = HashMap::new();
-    for c in phase1.into_iter().chain(phase2.into_iter()) {
+    for c in phase1.into_iter().chain(phase2) {
         match by_path.get(&c.path) {
             Some(e) if e.rank <= c.rank => {}
             _ => {
@@ -262,7 +262,7 @@ fn size_and_finish(
         })
         .collect();
 
-    locations.sort_by(|a, b| b.size.cmp(&a.size));
+    locations.sort_by_key(|b| std::cmp::Reverse(b.size));
     let error_samples = error_samples
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -76,7 +76,7 @@ fn scan_caches_with(
         })
         .collect();
 
-    locations.sort_by(|a, b| b.size.cmp(&a.size));
+    locations.sort_by_key(|b| std::cmp::Reverse(b.size));
     let error_samples = error_samples
         .into_inner()
         .unwrap_or_else(std::sync::PoisonError::into_inner);

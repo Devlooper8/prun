@@ -159,7 +159,7 @@ fn finish_scan(out: &mut dyn Write, what: &str, collected: Collected, json: bool
         let _ = writeln!(out, "error: {e}");
         return ExitCode::FAILURE;
     }
-    locations.sort_by(|a, b| b.size.cmp(&a.size));
+    locations.sort_by_key(|b| std::cmp::Reverse(b.size));
 
     if json {
         let payload = serde_json::json!({
@@ -254,7 +254,7 @@ fn cmd_clean(args: &[String], out: &mut dyn Write) -> ExitCode {
             return ExitCode::FAILURE;
         }
         let mut locs = collected.locations;
-        locs.sort_by(|a, b| b.size.cmp(&a.size)); // largest-first, like the GUI
+        locs.sort_by_key(|b| std::cmp::Reverse(b.size)); // largest-first, like the GUI
         locs.into_iter().map(|l| l.path).collect()
     } else {
         positionals(args).iter().map(|s| (*s).to_string()).collect()
