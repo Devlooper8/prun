@@ -6,6 +6,8 @@ lets you reclaim the space. It's a small, fast Tauri v2 desktop app (plus a
 headless CLI for scripting) with a rule-based detector covering ~26
 ecosystems out of the box.
 
+![Prun scanning a projects folder, then reviewing and cleaning the selected build artifacts](.github/media/demo.gif)
+
 ## Why
 
 Every project you've ever built leaves artifacts behind: a `node_modules`

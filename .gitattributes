@@ -6,5 +6,6 @@
 
 # Be explicit about the binary assets so they're never EOL-converted.
 *.png binary
+*.gif binary
 *.ico binary
 *.icns binary
