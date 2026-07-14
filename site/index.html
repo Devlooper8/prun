@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b0e0d" />
+    <meta
+      name="description"
+      content="Prun finds disposable build artifacts across your projects and helps you safely reclaim the space."
+    />
+    <meta property="og:title" content="Prun — make room for the next build" />
+    <meta
+      property="og:description"
+      content="A fast, cross-platform project artifact cleaner for node_modules, target, .venv, build caches, and more."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://devlooper8.github.io/prun/" />
+    <meta property="og:image" content="https://devlooper8.github.io/prun/assets/demo.gif" />
+    <link rel="canonical" href="https://devlooper8.github.io/prun/" />
+    <link rel="icon" href="assets/prun.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script>
+      document.documentElement.classList.add("has-js");
+    </script>
+    <title>Prun — project artifact cleaner</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header" data-header>
+      <div class="container nav-wrap">
+        <a class="brand" href="#top" aria-label="Prun home">
+          <span class="brand-mark"><img src="assets/prun.svg" alt="" /></span>
+          <span>Prun</span>
+        </a>
+
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="site-nav">
+          <span></span><span></span><span></span>
+          <span class="sr-only">Toggle navigation</span>
+        </button>
+
+        <nav class="site-nav" id="site-nav" aria-label="Primary navigation">
+          <a href="#features">Features</a>
+          <a href="#how-it-works">How it works</a>
+          <a href="#cli">CLI</a>
+          <a href="https://github.com/Devlooper8/prun#install--run">Docs</a>
+          <a class="nav-github" href="https://github.com/Devlooper8/prun" aria-label="Prun on GitHub">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.87c-2.78.6-3.37-1.18-3.37-1.18-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.61.07-.61 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.35 1.09 2.92.83.09-.65.35-1.09.64-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.54 9.54 0 0 1 12 6.82a9.5 9.5 0 0 1 2.5.34c1.91-1.29 2.75-1.02 2.75-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.86V21c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" />
+            </svg>
+            <span>GitHub</span>
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero" id="top">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="container hero-grid">
+          <div class="hero-copy" data-animate>
+            <div class="eyebrow"><span class="pulse"></span> Open source · v0.3.0</div>
+            <h1>Your disk has a <span>build problem.</span></h1>
+            <p class="hero-lede">
+              Prun finds the disposable artifacts hiding across your projects — then lets you reclaim the
+              space with context, control, and Trash as the default.
+            </p>
+            <div class="hero-actions">
+              <a class="button button-primary" href="demo/">
+                Explore the live demo
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+              </a>
+              <a class="button button-secondary" href="https://github.com/Devlooper8/prun#install--run">
+                Build from source
+              </a>
+            </div>
+            <div class="hero-proof" aria-label="Project highlights">
+              <span>Windows</span><i></i><span>macOS</span><i></i><span>Linux</span><i></i><span>Apache-2.0</span>
+            </div>
+          </div>
+
+          <div class="artifact-orbit" aria-label="Examples of reclaimable project artifacts" data-animate>
+            <div class="orbit-card orbit-card-main">
+              <div class="orbit-top">
+                <span class="orbit-path">~/Projects</span>
+                <span class="orbit-total">38.7 GB</span>
+              </div>
+              <div class="orbit-bars" aria-hidden="true">
+                <span style="--width: 88%; --delay: 0s"></span>
+                <span style="--width: 62%; --delay: 0.1s"></span>
+                <span style="--width: 42%; --delay: 0.2s"></span>
+                <span style="--width: 25%; --delay: 0.3s"></span>
+              </div>
+              <div class="orbit-row"><span class="file-dot dot-node"></span><code>node_modules</code><b>18.4 GB</b></div>
+              <div class="orbit-row"><span class="file-dot dot-rust"></span><code>target</code><b>11.2 GB</b></div>
+              <div class="orbit-row"><span class="file-dot dot-python"></span><code>.venv</code><b>6.7 GB</b></div>
+              <div class="orbit-row"><span class="file-dot dot-jvm"></span><code>.gradle</code><b>2.4 GB</b></div>
+              <div class="orbit-action"><span>Selected · 23 artifacts</span><strong>Move to Trash</strong></div>
+            </div>
+            <div class="float-chip float-chip-one"><span class="chip-icon">✓</span> Git-aware</div>
+            <div class="float-chip float-chip-two"><span class="chip-icon">↺</span> Recoverable</div>
+            <div class="float-chip float-chip-three"><span class="chip-icon">26</span> ecosystems</div>
+          </div>
+        </div>
+
+        <div class="container artifact-strip" aria-label="Common artifacts Prun detects" data-animate>
+          <span class="strip-label">Finds the usual suspects</span>
+          <div class="artifact-list">
+            <code>node_modules</code><code>target</code><code>.venv</code><code>vendor</code><code>.gradle</code
+            ><code>bin/obj</code><code>DerivedData</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="section showcase" id="features">
+        <div class="container">
+          <div class="section-heading" data-animate>
+            <div class="kicker">See the space. Keep the context.</div>
+            <h2>Cleanup without the guesswork.</h2>
+            <p>Every result stays attached to the project and ecosystem it came from, so a large number never becomes a blind decision.</p>
+          </div>
+
+          <div class="app-frame" data-animate>
+            <div class="frame-topbar">
+              <div class="traffic"><span></span><span></span><span></span></div>
+              <div class="frame-title">Prun · ~/Projects</div>
+              <a href="demo/">Open interactive demo <span>↗</span></a>
+            </div>
+            <img
+              src="assets/demo.gif"
+              alt="Prun scanning a projects directory, grouping build artifacts, and selecting items to clean"
+              width="940"
+              height="600"
+              loading="lazy"
+            />
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature-card feature-wide" data-animate>
+              <div class="feature-icon icon-scan">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m15.5 15.5 5 5M8 8h5M8 11h3" /></svg>
+              </div>
+              <div>
+                <h3>One scan, many stacks</h3>
+                <p>Rule-based detection covers roughly 26 ecosystems, from Rust and Node.js to Python, JVM, .NET, PHP, Ruby, Go, and C/C++.</p>
+              </div>
+              <div class="ecosystem-cloud" aria-hidden="true">
+                <span>Rust</span><span>Node.js</span><span>Python</span><span>Gradle</span><span>.NET</span><span>Go</span>
+              </div>
+            </article>
+
+            <article class="feature-card" data-animate>
+              <div class="feature-icon icon-shield">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 19 6v5c0 4.5-2.8 7.6-7 9.5C7.8 18.6 5 15.5 5 11V6l7-3Z" /><path d="m9 12 2 2 4-5" /></svg>
+              </div>
+              <h3>Safety is the default</h3>
+              <p>Move artifacts to the system Trash first. Permanent deletion always takes a deliberate second confirmation.</p>
+            </article>
+
+            <article class="feature-card" data-animate>
+              <div class="feature-icon icon-filter">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16l-6 7v6l-4 2v-8L4 5Z" /><circle cx="18" cy="17" r="3" /></svg>
+              </div>
+              <h3>Filter what matters</h3>
+              <p>Focus by age, minimum size, ecosystem, Git status, or your own <code>.prunignore</code> rules.</p>
+            </article>
+
+            <article class="feature-card feature-wide feature-rules" data-animate>
+              <div class="feature-icon icon-rules">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4v16M12 4v16M18 4v16" /><circle cx="6" cy="9" r="2" /><circle cx="12" cy="15" r="2" /><circle cx="18" cy="7" r="2" /></svg>
+              </div>
+              <div>
+                <h3>Your projects, your rules</h3>
+                <p>Add, edit, or disable detectors in the app. Overrides layer over the built-in rules, so future defaults still reach you.</p>
+              </div>
+              <div class="rules-preview" aria-hidden="true">
+                <div><span class="toggle on"></span><b>Rust</b><code>target</code></div>
+                <div><span class="toggle on"></span><b>Node.js</b><code>node_modules</code></div>
+                <div class="dim"><span class="toggle"></span><b>Custom</b><code>.cache</code></div>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section workflow" id="how-it-works">
+        <div class="container">
+          <div class="section-heading compact" data-animate>
+            <div class="kicker">A short path to free space</div>
+            <h2>Scan. Review. Reclaim.</h2>
+          </div>
+          <ol class="steps">
+            <li data-animate>
+              <span class="step-number">01</span>
+              <div class="step-line"></div>
+              <h3>Point Prun at your projects</h3>
+              <p>Choose a root, drop in a folder, or scan shared system caches such as Cargo, npm, and Gradle.</p>
+            </li>
+            <li data-animate>
+              <span class="step-number">02</span>
+              <div class="step-line"></div>
+              <h3>Review by project</h3>
+              <p>See exact paths, sizes, ages, and ecosystem labels. Filter the list without rescanning.</p>
+            </li>
+            <li data-animate>
+              <span class="step-number">03</span>
+              <div class="step-line"></div>
+              <h3>Clean on your terms</h3>
+              <p>Select only what you want, then send it to Trash or explicitly choose permanent deletion.</p>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section cli-section" id="cli">
+        <div class="container cli-grid">
+          <div class="cli-copy" data-animate>
+            <div class="kicker">The same engine, headless</div>
+            <h2>Made for a mouse.<br />Ready for a cron job.</h2>
+            <p>
+              Prun ships a CLI over the same scan and clean core. Preview by default, emit JSON for scripts, and require an explicit <code>--yes</code> before scan-based cleaning.
+            </p>
+            <a class="text-link" href="https://github.com/Devlooper8/prun#command-line-use">Read the CLI guide <span>→</span></a>
+          </div>
+
+          <div class="terminal" data-animate>
+            <div class="terminal-bar">
+              <div class="traffic"><span></span><span></span><span></span></div>
+              <span>~/Projects</span>
+            </div>
+            <div class="terminal-body" aria-label="Example Prun CLI commands">
+              <p><span class="prompt">$</span> prun scan ~/Projects <em>--min-age 30</em></p>
+              <p class="output"><span class="tree">├─</span> atlas/node_modules <b>4.8 GB</b></p>
+              <p class="output"><span class="tree">├─</span> ember/target <b>2.1 GB</b></p>
+              <p class="output"><span class="tree">└─</span> aurora/.venv <b>1.3 GB</b></p>
+              <p class="summary">8.2 GB reclaimable across 14 artifacts</p>
+              <p class="command-two"><span class="prompt">$</span> prun clean --scan ~/Projects <em>--dry-run</em></p>
+              <p class="output muted">Dry run — no files changed.</p>
+              <span class="cursor" aria-hidden="true"></span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section final-cta">
+        <div class="container cta-card" data-animate>
+          <div class="cta-noise" aria-hidden="true"></div>
+          <div>
+            <div class="kicker">Your next build can have the space</div>
+            <h2>Find what your projects left behind.</h2>
+          </div>
+          <div class="cta-actions">
+            <a class="button button-light" href="demo/">Try the browser demo</a>
+            <a class="button button-ghost" href="https://github.com/Devlooper8/prun">View on GitHub</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container footer-grid">
+        <a class="brand" href="#top"><span class="brand-mark"><img src="assets/prun.svg" alt="" /></span><span>Prun</span></a>
+        <p>Project artifact cleaner for Windows, macOS, and Linux.</p>
+        <div class="footer-links">
+          <a href="https://github.com/Devlooper8/prun/blob/main/LICENSE">Apache-2.0</a>
+          <a href="https://github.com/Devlooper8/prun/blob/main/CONTRIBUTING.md">Contribute</a>
+          <a href="https://github.com/Devlooper8/prun/blob/main/SECURITY.md">Security</a>
+        </div>
+      </div>
+    </footer>
+
+    <script src="script.js" defer></script>
+  </body>
+</html>

@@ -8,6 +8,8 @@ ecosystems out of the box.
 
 ![Prun scanning a projects folder, then reviewing and cleaning the selected build artifacts](.github/media/demo.gif)
 
+[Explore the live browser demo](https://devlooper8.github.io/prun/demo/) — it uses sample data and never accesses your files.
+
 ## Why
 
 Every project you've ever built leaves artifacts behind: a `node_modules`

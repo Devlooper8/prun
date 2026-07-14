@@ -19,6 +19,7 @@ import {
   onFolderDrop,
   windowAction,
   openLogsDir,
+  IS_TAURI,
 } from "./backend";
 import { enterRulesView } from "./rules-editor";
 import { $ } from "./dom";
@@ -710,4 +711,9 @@ function wire() {
 const savedRoots = loadRecentRoots();
 renderRecentRoots(savedRoots);
 if (savedRoots[0]) rootInput.value = savedRoots[0]; // reopen on the last root used
+if (!IS_TAURI) {
+  document.body.classList.add("is-browser");
+  $<HTMLElement>("#browser-badge").hidden = false;
+  $<HTMLElement>("#browser-tools").hidden = false;
+}
 wire();
