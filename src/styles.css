@@ -561,3 +561,183 @@ body {
 .re-toggles { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 14px; }
 .re-check { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; color: var(--txt-dim); font-size: 13px; }
 .re-hint { margin-top: 12px; color: var(--txt-faint); font-size: 12px; line-height: 1.5; }
+
+/* ── Compact / browser-demo layout ─────────────────────────────────────────
+ * The desktop app is intentionally dense, but squeezing its fixed rail,
+ * category sidebar, toolbars, and footer into a phone viewport makes every
+ * label wrap independently. Below 760px those same controls become a compact
+ * vertical shell: horizontal nav, scrollable facet strips, and a full-width
+ * results list. This also makes a narrowly resized desktop window usable. */
+@media (max-width: 760px) {
+  html, body { width: 100%; overflow: hidden; }
+  body { overscroll-behavior: none; }
+  .app { width: 100%; height: 100dvh; min-height: 540px; }
+
+  /* Browser-demo masthead: keep the context badge and project links readable
+     without spending two full rows of the limited app viewport. */
+  .titlebar {
+    min-height: 52px; height: auto;
+    padding: 7px 10px; gap: 8px;
+  }
+  .titlebar__brand { min-width: 0; flex: 1; gap: 6px; align-items: center; }
+  .titlebar__sub { display: none; }
+  .browser-badge {
+    min-width: 0; margin-left: 2px; padding: 3px 7px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-size: 8.5px; letter-spacing: .15px;
+  }
+  .browser-tools { flex: 0 0 auto; margin-left: 0; gap: 4px; }
+  .browser-tools a { padding: 5px 7px; font-size: 10px; white-space: nowrap; }
+
+  /* The left rail becomes a top tab bar. */
+  .shell { min-width: 0; flex-direction: column; }
+  .nav {
+    width: 100%; height: 52px; flex: 0 0 52px;
+    flex-direction: row; gap: 4px;
+    padding: 6px 8px;
+    border-right: 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .nav__item {
+    min-width: 0; height: 40px; flex: 1 1 0;
+    justify-content: center; padding: 0 10px;
+  }
+  .nav__spacer { display: none; }
+  .main { width: 100%; min-height: 0; }
+
+  /* Scan controls: path + primary action, followed by the wider cache action. */
+  .pathbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px; padding: 10px;
+  }
+  .field { min-width: 0; height: 40px; padding: 0 11px; }
+  .field input { min-width: 0; font-size: 13px; }
+  .pathbar .btn { height: 40px; justify-content: center; padding: 0 14px; }
+  #caches { grid-column: 1 / -1; width: 100%; }
+
+  /* Filters and categories stay on one swipeable line instead of shrinking
+     until their labels break into multiple rows. */
+  .filters {
+    gap: 7px; padding: 8px 10px;
+    overflow-x: auto; overflow-y: hidden;
+    overscroll-behavior-inline: contain;
+    scrollbar-width: none;
+  }
+  .filters::-webkit-scrollbar,
+  .cats::-webkit-scrollbar,
+  .reditor__tabs::-webkit-scrollbar,
+  .reditor__actions::-webkit-scrollbar { display: none; }
+  .filters .pill {
+    height: 34px; flex: 0 0 auto;
+    padding: 0 11px; gap: 7px;
+    white-space: nowrap; font-size: 12px;
+  }
+  .pill__num { width: 22px; }
+
+  .body { min-height: 0; flex-direction: column; }
+  .cats {
+    width: 100%; max-width: 100%; flex: 0 0 auto;
+    padding: 7px 10px;
+    overflow-x: auto; overflow-y: hidden;
+    border-right: 0; border-bottom: 1px solid var(--line-soft);
+    scrollbar-width: none;
+  }
+  .cats:has(.cats__list:empty) { display: none; }
+  .cats__head { display: none; }
+  .cats__list { width: max-content; flex-direction: row; gap: 6px; }
+  .cat {
+    width: auto; min-height: 32px;
+    padding: 6px 9px; gap: 7px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--bg-pill); white-space: nowrap;
+  }
+  .cat__name { font-size: 12px; }
+  .cat__size { font-size: 11.5px; }
+
+  .locs { min-height: 0; padding: 11px 10px 5px; }
+  .locs__head { min-width: 0; gap: 10px; margin-bottom: 9px; }
+  #locs-title {
+    min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .locs__size { flex: 0 0 auto; white-space: nowrap; font-size: 11.5px; }
+  .locs__list { margin: 0; }
+  .scanbar { margin-bottom: 10px; }
+
+  /* Preserve the useful name + size columns; secondary dots/count/age can be
+     recovered by expanding a group and are omitted at phone width. */
+  .group__head {
+    grid-template-columns: 22px auto minmax(0, 1fr) auto;
+    gap: 8px; padding: 10px 5px;
+  }
+  .group__dots, .group__count { display: none; }
+  .group__size { white-space: nowrap; font-size: 12.5px; }
+  .loc {
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    gap: 8px; padding: 10px 5px;
+  }
+  .loc--child { padding-left: 29px; }
+  .loc__age { display: none; }
+  .loc__size { white-space: nowrap; font-size: 12px; }
+
+  /* The bottom actions remain a single readable row. */
+  .footer {
+    min-height: 64px; height: auto; flex: 0 0 auto;
+    gap: 8px;
+    padding: 8px max(10px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  }
+  .footer__sel { min-width: 74px; flex: 1 1 auto; }
+  .footer__label { font-size: 10px; white-space: nowrap; }
+  .footer__total { font-size: 18px; }
+  .footer__actions { min-width: 0; flex: 0 1 auto; gap: 6px; }
+  .trash {
+    width: 40px; height: 40px; flex: 0 0 40px;
+    justify-content: center; padding: 0;
+  }
+  .trash__txt { display: none; }
+  .footer .btn {
+    min-width: 0; height: 40px;
+    padding: 0 11px; gap: 6px;
+    font-size: 12.5px;
+  }
+  .footer .btn span {
+    min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .footer .btn svg { flex: 0 0 auto; }
+  .toast { bottom: 76px; width: max-content; max-width: calc(100vw - 24px); text-align: center; }
+
+  /* Rules editor: master and detail stack instead of competing for width. */
+  .reditor__head { padding: 10px; }
+  .reditor__headmain { align-items: stretch; flex-direction: column; gap: 8px; }
+  .reditor__actions {
+    width: 100%; gap: 6px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .reditor__actions .btn { height: 34px; flex: 0 0 auto; padding: 0 10px; font-size: 12px; }
+  .reditor__status { margin-top: 6px; font-size: 10.5px; }
+  .reditor__tabs {
+    gap: 6px; padding: 8px 10px;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .reditor__tab { height: 34px; flex: 0 0 auto; padding: 0 11px; font-size: 12px; white-space: nowrap; }
+  .reditor__error { margin: 8px 10px 0; }
+  .reditor__split { flex-direction: column; }
+  .reditor__list {
+    width: 100%; min-height: 150px; flex: 0 0 42%;
+    border-right: 0; border-bottom: 1px solid var(--line-soft);
+  }
+  .reditor__split--single .reditor__list { display: none; }
+  .reditor__detail { padding: 12px; }
+  .re-toolbar { padding: 8px; }
+  .re-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 400px) {
+  .browser-tools a:first-child { display: none; }
+  .titlebar { padding-inline: 8px; }
+  .browser-badge { font-size: 8px; }
+  .nav__item { padding-inline: 7px; font-size: 12.5px; }
+  .footer__sel { min-width: 68px; }
+  .footer .btn { padding-inline: 9px; font-size: 12px; }
+}
