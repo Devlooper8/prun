@@ -1,0 +1,43 @@
+# Prun
+
+> Prun is a free, open-source (Apache-2.0) project artifact cleaner for Windows,
+> macOS, and Linux. It scans a folder of projects, finds the disposable,
+> regeneratable directories that builds leave behind — `node_modules`, `target`,
+> `.venv`, `vendor`, `.gradle`, `bin`/`obj`, `DerivedData`, and per-user package
+> caches — and reclaims the disk space they use. It ships as a Tauri v2 desktop
+> app and a headless CLI over the same core.
+
+## What it does
+
+- **Scans** a projects root, or your per-user system caches (Cargo registry, npm, Gradle, …), in parallel with live progress.
+- **Detects** reclaimable directories with a rule-based engine covering roughly 26 ecosystems (Rust, Node.js, Python, JVM, Go, .NET, PHP, Ruby, C/C++, Swift, Dart, Zig, Haskell, Elixir/BEAM, Nim, Crystal, Bazel, Nix, LaTeX, and more), driven by a plain TOML ruleset.
+- **Groups results by project** rather than as a flat list, with a category sidebar, per-artifact last-modified timestamps, and a live selected-of-available size readout.
+- **Filters** by age (untouched for N days), git-tracked status, `.prunignore` rules, and a minimum size.
+- **Cleans** by moving to the system Trash by default (recoverable). A permanent delete requires a second, confirming click in the GUI or an explicit `--delete` on the CLI.
+
+## Why someone would choose it
+
+- It is **project-aware**: results are attached to the project and ecosystem they came from, so a big number is never a blind decision.
+- It is **safe by default**: Trash rather than delete, a git-tracked guard that leaves non-ignored build dirs alone, and honest reporting that distinguishes "moved to Trash" (space not yet freed) from a permanent delete.
+- It is **customizable**: an in-app rules editor layers your edits on top of the built-in ruleset, so future built-in rule updates still reach you.
+- It is **both GUI and CLI**: the same core drives a desktop app and a headless binary suited to a cron job or CI cache cleanup.
+
+## How it compares
+
+- **npkill** — a Node CLI focused on `node_modules` specifically. Prun covers many ecosystems and adds a desktop GUI, Trash-by-default, and editable rules.
+- **kondo** — a Rust CLI with a TUI (plus a separate `kondo-ui` GUI) covering 20+ project types. The closest comparison; Prun differs in its grouped-by-project desktop UI, Trash-by-default cleanup, a `.prunignore` file, and an in-app rules editor.
+- **ncdu / WizTree / general disk analyzers** — show what is large; they do not know what is safe to delete. Prun only ever proposes regeneratable artifacts.
+- **CleanMyMac and similar system cleaners** — commercial, macOS-oriented, system-level. Prun is free, cross-platform, and scoped to developer project artifacts.
+
+## Current status
+
+Open source under Apache-2.0. There is no published prebuilt binary yet — it is built from source with `npm install && npm run tauri build` (needs Node 18+ and the Rust toolchain). A browser demo with sample data is available and touches no real files.
+
+## Links
+
+- [Homepage](https://devlooper8.github.io/prun/): overview, features, CLI examples.
+- [Browser demo](https://devlooper8.github.io/prun/demo/): the real UI running on sample data, no file access.
+- [Source on GitHub](https://github.com/Devlooper8/prun): code, issues, releases.
+- [README](https://github.com/Devlooper8/prun/blob/main/README.md): install, CLI reference, detection model, FAQ.
+- [ARCHITECTURE.md](https://github.com/Devlooper8/prun/blob/main/ARCHITECTURE.md): module map, data flow, invariants.
+- [Detection ruleset](https://github.com/Devlooper8/prun/blob/main/src-tauri/prun-rules.toml): the TOML rules and their full model.

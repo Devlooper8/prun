@@ -1,0 +1,6 @@
+# Prun — https://github.com/Devlooper8/prun
+# All crawlers welcome, including AI/LLM crawlers. Nothing here is private.
+User-agent: *
+Allow: /
+
+Sitemap: https://devlooper8.github.io/prun/sitemap.xml
