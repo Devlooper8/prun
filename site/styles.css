@@ -1177,6 +1177,55 @@ svg {
   transition-delay: 180ms;
 }
 
+.faq {
+  border-top: 1px solid var(--line);
+  background: var(--bg-soft);
+}
+
+.faq-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.faq-item {
+  padding: 28px 30px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(145deg, rgba(22, 28, 25, 0.8), rgba(15, 19, 17, 0.72));
+}
+
+.faq-item h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 640;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+
+.faq-item p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.faq-item code {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--green);
+}
+
+.faq-item a {
+  color: var(--text);
+  text-decoration-color: var(--line-hi);
+  text-underline-offset: 3px;
+}
+
+.faq-item a:hover {
+  text-decoration-color: var(--green);
+}
+
 @media (max-width: 1020px) {
   .hero {
     padding-top: 145px;
@@ -1351,8 +1400,13 @@ svg {
     display: none;
   }
 
-  .feature-grid {
+  .feature-grid,
+  .faq-grid {
     grid-template-columns: 1fr;
+  }
+
+  .faq-item {
+    padding: 24px;
   }
 
   .feature-card,

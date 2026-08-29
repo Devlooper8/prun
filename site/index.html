@@ -6,23 +6,128 @@
     <meta name="theme-color" content="#0b0e0d" />
     <meta
       name="description"
-      content="Prun finds disposable build artifacts across your projects and helps you safely reclaim the space."
+      content="Prun is a free, open-source project artifact cleaner for Windows, macOS, and Linux. It finds and safely deletes node_modules, target, .venv, vendor, and build caches across all your projects — desktop app plus CLI, Trash by default."
     />
-    <meta property="og:title" content="Prun — make room for the next build" />
+    <meta property="og:title" content="Prun — project artifact cleaner for node_modules, target and .venv" />
     <meta
       property="og:description"
-      content="A fast, cross-platform project artifact cleaner for node_modules, target, .venv, build caches, and more."
+      content="A fast, cross-platform project artifact cleaner for node_modules, target, .venv, build caches, and more. Free and open source."
     />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Prun" />
     <meta property="og:url" content="https://devlooper8.github.io/prun/" />
     <meta property="og:image" content="https://devlooper8.github.io/prun/assets/demo.gif" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Prun — project artifact cleaner" />
+    <meta
+      name="twitter:description"
+      content="Find and reclaim the disposable build artifacts scattered across your projects — node_modules, target, .venv, and more."
+    />
+    <meta name="twitter:image" content="https://devlooper8.github.io/prun/assets/demo.gif" />
     <link rel="canonical" href="https://devlooper8.github.io/prun/" />
+    <link rel="sitemap" type="application/xml" href="/prun/sitemap.xml" />
     <link rel="icon" href="assets/prun.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
     <script>
       document.documentElement.classList.add("has-js");
     </script>
-    <title>Prun — project artifact cleaner</title>
+    <title>Prun — project artifact cleaner for node_modules, target, .venv</title>
+
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://devlooper8.github.io/prun/#app",
+            "name": "Prun",
+            "alternateName": "Prun project artifact cleaner",
+            "applicationCategory": "DeveloperApplication",
+            "applicationSubCategory": "Disk cleanup utility",
+            "operatingSystem": "Windows, macOS, Linux",
+            "url": "https://devlooper8.github.io/prun/",
+            "codeRepository": "https://github.com/Devlooper8/prun",
+            "downloadUrl": "https://github.com/Devlooper8/prun",
+            "license": "https://www.apache.org/licenses/LICENSE-2.0",
+            "isAccessibleForFree": true,
+            "description": "Prun is a free, open-source project artifact cleaner for Windows, macOS, and Linux. It scans a folder of projects, finds the disposable build artifacts they leave behind — node_modules, target, .venv, vendor, .gradle, bin/obj, DerivedData, and per-user package caches — and reclaims the disk space, moving them to the Trash by default.",
+            "featureList": [
+              "Parallel scanning of a projects tree or per-user system caches with live progress",
+              "Rule-based detection across roughly 26 ecosystems, driven by a plain TOML ruleset",
+              "Results grouped by project rather than a flat list, with an ecosystem sidebar filter",
+              "Trash by default; a permanent delete needs a second confirming click",
+              "Filters for age, git-tracked status, .prunignore rules, and minimum size",
+              "An in-app rules editor that layers your edits on top of the built-in ruleset",
+              "A headless CLI over the same core, for scripts and cron jobs"
+            ],
+            "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+            "author": { "@type": "Person", "name": "Tomáš Ondruš" }
+          },
+          {
+            "@type": "FAQPage",
+            "@id": "https://devlooper8.github.io/prun/#faq",
+            "mainEntity": [
+              {
+                "@type": "Question",
+                "name": "How do I delete node_modules from all my projects at once?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Point Prun at the folder that contains your projects. It walks the whole tree, finds every node_modules — along with the other artifacts each project left behind — and lists them grouped by project with their sizes. Select what you want and clean it in one pass. From the command line the same scan is prun scan ~/Projects, and prun clean --scan ~/Projects --yes does the removal."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Is it safe to delete node_modules, target, and .venv folders?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes — these directories are regenerated by your next install or build, which is why Prun only ever proposes artifacts of that kind. It adds three further guards: cleaning moves items to the system Trash by default so a mistake is recoverable, directories that git tracks are skipped because a tracked build directory may be intentional, and a .prunignore file lets you exclude paths permanently. A permanent delete is opt-in and needs a second confirming click."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How is Prun different from npkill, kondo, or ncdu?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "npkill is a Node CLI focused on node_modules specifically. kondo is a Rust CLI with a TUI covering 20+ project types and is the closest comparison. ncdu and other disk analyzers show you what is large but do not know what is safe to remove. Prun covers roughly 26 ecosystems, groups results by project in a desktop GUI, moves to Trash by default, respects .prunignore and git-tracked status, and lets you edit the detection rules in-app — with the same core available as a headless CLI."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Which languages and build artifacts does Prun detect?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Roughly 26 ecosystems out of the box, including Rust (target), Node.js (node_modules, .next, dist), Python (.venv, __pycache__), JVM and Gradle (build, .gradle), Go, .NET (bin, obj), PHP (vendor), Ruby, C/C++ and CMake, Swift and Xcode (DerivedData), Dart, Zig, Haskell, Elixir/BEAM, Nim, Crystal, Bazel, Nix, and LaTeX — plus per-user package caches such as the Cargo registry, npm, and Gradle, and cross-cutting junk like OS files and editor swap files."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Does Prun work on Windows, macOS, and Linux?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. Prun is a Tauri v2 desktop app with a Rust backend and builds on all three platforms, as does the CLI. There is no prebuilt binary published yet, so it is currently built from source with npm install and npm run tauri build, which needs Node 18+ and the Rust toolchain."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "Can Prun run unattended in a script or cron job?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Yes. The headless CLI exposes the same scan, clean, caches, and rules core. A scan-driven clean defaults to a dry run unless you pass --yes, so a cron job can safely start by printing what it would do: prun clean --scan ~/Projects --min-age 30 prints the plan, and adding --yes performs it. --json gives machine-readable output, and --delete removes permanently instead of trashing, which is the usual choice for reclaiming CI cache space."
+                }
+              },
+              {
+                "@type": "Question",
+                "name": "How do I stop Prun from deleting a folder I need?",
+                "acceptedAnswer": {
+                  "@type": "Answer",
+                  "text": "Three ways, in increasing permanence: leave the item unselected, since nothing is cleaned unless you select it; add a .prunignore file at the scan root using gitignore syntax, which excludes matching paths from results; or open the Rules tab and disable or edit the rule that matched. Rule edits are saved as an override layered on top of the built-in ruleset, so later updates to the built-in rules still reach you."
+                }
+              }
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -43,6 +148,7 @@
           <a href="#features">Features</a>
           <a href="#how-it-works">How it works</a>
           <a href="#cli">CLI</a>
+          <a href="#faq">FAQ</a>
           <a href="https://github.com/Devlooper8/prun#install--run">Docs</a>
           <a class="nav-github" href="https://github.com/Devlooper8/prun" aria-label="Prun on GitHub">
             <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -238,6 +344,92 @@
               <p class="output muted">Dry run — no files changed.</p>
               <span class="cursor" aria-hidden="true"></span>
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section faq" id="faq">
+        <div class="container">
+          <div class="section-heading" data-animate>
+            <div class="kicker">The questions people actually ask</div>
+            <h2>Frequently asked.</h2>
+          </div>
+
+          <div class="faq-grid">
+            <article class="faq-item" data-animate>
+              <h3>How do I delete node_modules from all my projects at once?</h3>
+              <p>
+                Point Prun at the folder that contains your projects. It walks the whole tree, finds every
+                <code>node_modules</code> — along with the other artifacts each project left behind — and lists them grouped by
+                project with their sizes. Select what you want and clean it in one pass. From the command line the same scan is
+                <code>prun scan ~/Projects</code>, and <code>prun clean --scan ~/Projects --yes</code> does the removal.
+              </p>
+            </article>
+
+            <article class="faq-item" data-animate>
+              <h3>Is it safe to delete node_modules, target, and .venv folders?</h3>
+              <p>
+                Yes — these directories are regenerated by your next install or build, which is why Prun only ever proposes
+                artifacts of that kind. It adds three further guards: cleaning moves items to the system Trash by default so a
+                mistake is recoverable, directories that git tracks are skipped because a tracked build directory may be
+                intentional, and a <code>.prunignore</code> file lets you exclude paths permanently. A permanent delete is opt-in
+                and needs a second confirming click.
+              </p>
+            </article>
+
+            <article class="faq-item" data-animate>
+              <h3>How is Prun different from npkill, kondo, or ncdu?</h3>
+              <p>
+                <a href="https://github.com/voidcosmos/npkill">npkill</a> is a Node CLI focused on <code>node_modules</code>
+                specifically. <a href="https://github.com/tbillington/kondo">kondo</a> is a Rust CLI with a TUI covering 20+
+                project types and is the closest comparison. ncdu and other disk analyzers show you what is large but do not know
+                what is safe to remove. Prun covers roughly 26 ecosystems, groups results by project in a desktop GUI, moves to
+                Trash by default, respects <code>.prunignore</code> and git-tracked status, and lets you edit the detection rules
+                in-app — with the same core available as a headless CLI.
+              </p>
+            </article>
+
+            <article class="faq-item" data-animate>
+              <h3>Which languages and build artifacts does Prun detect?</h3>
+              <p>
+                Roughly 26 ecosystems out of the box, including Rust (<code>target</code>), Node.js (<code>node_modules</code>,
+                <code>.next</code>, <code>dist</code>), Python (<code>.venv</code>, <code>__pycache__</code>), JVM and Gradle
+                (<code>build</code>, <code>.gradle</code>), Go, .NET (<code>bin</code>, <code>obj</code>), PHP
+                (<code>vendor</code>), Ruby, C/C++ and CMake, Swift and Xcode (<code>DerivedData</code>), Dart, Zig, Haskell,
+                Elixir/BEAM, Nim, Crystal, Bazel, Nix, and LaTeX — plus per-user package caches such as the Cargo registry, npm,
+                and Gradle, and cross-cutting junk like OS files and editor swap files.
+              </p>
+            </article>
+
+            <article class="faq-item" data-animate>
+              <h3>Does Prun work on Windows, macOS, and Linux?</h3>
+              <p>
+                Yes. Prun is a Tauri v2 desktop app with a Rust backend and builds on all three platforms, as does the CLI. There
+                is no prebuilt binary published yet, so it is currently built from source with <code>npm install</code> and
+                <code>npm run tauri build</code>, which needs Node 18+ and the Rust toolchain.
+              </p>
+            </article>
+
+            <article class="faq-item" data-animate>
+              <h3>Can Prun run unattended in a script or cron job?</h3>
+              <p>
+                Yes. The headless CLI exposes the same scan, clean, caches, and rules core. A scan-driven clean defaults to a dry
+                run unless you pass <code>--yes</code>, so a cron job can safely start by printing what it would do:
+                <code>prun clean --scan ~/Projects --min-age 30</code> prints the plan, and adding <code>--yes</code> performs it.
+                <code>--json</code> gives machine-readable output, and <code>--delete</code> removes permanently instead of
+                trashing, which is the usual choice for reclaiming CI cache space.
+              </p>
+            </article>
+
+            <article class="faq-item" data-animate>
+              <h3>How do I stop Prun from deleting a folder I need?</h3>
+              <p>
+                Three ways, in increasing permanence: leave the item unselected, since nothing is cleaned unless you select it;
+                add a <code>.prunignore</code> file at the scan root using gitignore syntax, which excludes matching paths from
+                results; or open the Rules tab and disable or edit the rule that matched. Rule edits are saved as an override
+                layered on top of the built-in ruleset, so later updates to the built-in rules still reach you.
+              </p>
+            </article>
           </div>
         </div>
       </section>
