@@ -40,7 +40,6 @@ pub fn is_subcommand(arg: &str) -> bool {
 }
 
 /// Entry point: parse `std::env::args` and run, writing to real stdout.
-#[must_use]
 pub fn run() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut out = std::io::stdout().lock();
